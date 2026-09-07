@@ -1,0 +1,23 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Data (raw exports can be large / regenerable — don't commit)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Results (keep the folder, not every run's raw output — commit summarized results instead)
+results/*.json
+results/*.csv
+
+# Secrets — NEVER commit AWS credentials
+.env
+*.pem
+aws_credentials*
+
+# OS
+.DS_Store

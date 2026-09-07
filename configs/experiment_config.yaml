@@ -1,0 +1,33 @@
+# Shared experiment configuration
+# Keep this as the single source of truth for parameters referenced across
+# baseline / vanilla-prophet / enhanced-prophet runs, so the 9 scenarios stay comparable.
+
+aws:
+  function_name: "snip-infra-handler"
+  region: "ap-south-1"
+  alias: "prod"
+  pc_buffer_percent: 10   # AWS-recommended buffer on top of predicted peak concurrency
+
+forecasting:
+  lead_time_minutes: 10          # how far ahead Prophet forecasts before a scaling action
+  retrain_window_hours: 24       # sliding window for adaptive retraining (layer 4)
+  confidence_interval: 0.95      # Prophet's default; controls yhat_lower/yhat_upper width
+  zscore_anomaly_threshold: 2.0  # layer 3: emergency override trigger
+
+traffic_patterns:
+  steady:
+    base_rps: 20
+    noise_pct: 5
+  spiky:
+    base_rps: 10
+    spike_multiplier: 8
+    spike_duration_minutes: 3
+  seasonal:
+    base_rps: 15
+    daily_amplitude_pct: 60
+
+metrics:
+  - p95_latency_ms
+  - p99_latency_ms
+  - cold_start_count
+  - cost_per_request_usd

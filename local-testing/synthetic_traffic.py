@@ -1,9 +1,3 @@
-"""
-Generates synthetic ds/y traffic data for local Prophet experimentation --
-no AWS, no Lambda, no Locust needed. Same three patterns your real experiments
-will use later, so what you learn here transfers directly.
-"""
-
 import numpy as np
 import pandas as pd
 

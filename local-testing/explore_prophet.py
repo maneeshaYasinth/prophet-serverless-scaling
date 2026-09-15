@@ -1,16 +1,22 @@
-"""
-Run this locally to see exactly what Prophet's input and output look like, with no
-AWS/Lambda dependency. Use it to build intuition before deciding what modifications
-(regressors, confidence-bound triggers, etc.) you actually need.
-
-Usage: python explore_prophet.py
-"""
-
 import pandas as pd
 import matplotlib.pyplot as plt
 from prophet import Prophet
 
 from synthetic_traffic import generate_steady, generate_spiky, generate_seasonal
+
+
+def compute_required_concurrency(forecast_df: pd.DataFrame, buffer_percent: float = 10.0) -> pd.DataFrame:
+    """
+    Layer 2: confidence-bound scaling trigger. Scales to yhat_upper (clipped at 0,
+    since negative concurrency is meaningless) instead of yhat, plus a buffer on top.
+    This is the number you'd actually send to put_provisioned_concurrency_config.
+    """
+    forecast_df = forecast_df.copy()
+    forecast_df["required_concurrency_vanilla"] = forecast_df["yhat"].clip(lower=0).round().astype(int)
+    forecast_df["required_concurrency_enhanced"] = (
+        forecast_df["yhat_upper"].clip(lower=0) * (1 + buffer_percent / 100)
+    ).round().astype(int)
+    return forecast_df
 
 
 def explore(pattern_name: str, df: pd.DataFrame, forecast_periods: int = 60):
@@ -53,6 +59,22 @@ def explore(pattern_name: str, df: pd.DataFrame, forecast_periods: int = 60):
     print(f"\n% of forecasted yhat_lower values that are negative: {negative_lower_pct:.1f}%")
     print("(Negative lower bounds don't make sense for a traffic count -- vanilla")
     print(" Prophet doesn't know y can't go below 0 unless you tell it to.)")
+
+    # ---- LAYER 2: confidence-bound trigger vs vanilla ----
+    # This is the actual comparison that justifies scaling to yhat_upper instead of
+    # yhat: how many MORE concurrent executions would you provision under the
+    # enhanced approach vs vanilla, for the exact same forecast?
+    scaled = compute_required_concurrency(future_only)
+    print("\n--- Layer 2: required concurrency, vanilla vs enhanced trigger ---")
+    print(scaled[["ds", "yhat", "yhat_upper", "required_concurrency_vanilla", "required_concurrency_enhanced"]].head(10))
+    avg_vanilla = scaled["required_concurrency_vanilla"].mean()
+    avg_enhanced = scaled["required_concurrency_enhanced"].mean()
+    print(f"\nAvg required concurrency -- vanilla (yhat): {avg_vanilla:.1f}")
+    print(f"Avg required concurrency -- enhanced (yhat_upper + 10% buffer): {avg_enhanced:.1f}")
+    print(f"Enhanced provisions {(avg_enhanced / avg_vanilla - 1) * 100:.0f}% more capacity on average")
+    print("(For spiky traffic this gap should be large -- that's the headroom that")
+    print(" prevents cold starts when the real spike hits. For steady traffic the gap")
+    print(" should be small, since yhat and yhat_upper are already close together.)")
 
     # ---- PLOT ----
     fig = model.plot(forecast)

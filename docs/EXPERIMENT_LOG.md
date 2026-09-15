@@ -32,3 +32,21 @@ iteration, not just final numbers. One entry per run.
   negative-floored confidence intervals — concretely motivates the confidence-bound
   trigger layer (layer 2) in the enhanced framework.
 - Next step: pull real CloudWatch/Locust data, replace synthetic generator.
+
+### Run: 2026-09-16-1
+- Condition: enhanced-prophet
+- Traffic pattern: spiky (synthetic)
+- Enhancement layers active (if enhanced-prophet): confidence-bound / z-score
+- Data source: synthetic
+- Duration / sample size: 150 holdout points
+- Results:
+  - Point-forecast capacity total: 300
+  - Confidence-bound capacity total: 1057 (+252.3% vs point forecast)
+  - Enhanced capacity total: 1122 (+274.0% vs point forecast)
+  - Negative lower-bound forecasts: 100.0% of points
+  - Layer 2 activations: 126 / 150 decisions
+  - Layer 3 overrides: 24 / 150 decisions
+- Notes / anomalies: The demo completed without errors and saved
+  `layer_comparison_spiky.png`. This synthetic demo does not measure P95/P99
+  latency, cold starts, or cost per request.
+- Next step: validate the layers against real CloudWatch/Locust data.

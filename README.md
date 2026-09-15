@@ -53,13 +53,15 @@ docs/
 
 ## Status
 
-Currently at: vanilla Prophet fitted on synthetic steady/spiky/seasonal data
-(`src/forecasting/prophet_baseline.py`). Key finding so far: spiky traffic produces wide,
-negative-floored confidence intervals with vanilla Prophet — this is the concrete motivation
-for the confidence-bound trigger layer (layer 2).
+Currently at: Layers 2 and 3 are implemented and validated on synthetic spiky
+traffic data. Layer 2 uses the upper confidence bound for capacity decisions,
+while Layer 3 applies a Z-score residual anomaly override. Vanilla Prophet still
+produces wide, negative-floored confidence intervals on spiky traffic, motivating
+the confidence-bound trigger.
 
-Next: swap synthetic data for real CloudWatch/Locust data, then build layer 1 (regressors),
-in parallel with standing up the reactive baseline scenario.
+Next: swap synthetic data for real CloudWatch/Locust data, then build layer 1
+(regressors) and layer 4 (adaptive retraining), in parallel with standing up the
+reactive baseline scenario.
 
 ## Setup
 

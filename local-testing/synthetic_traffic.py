@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 
 def generate_steady(hours: int = 48, freq_minutes: int = 5, base_rps: float = 20, noise_pct: float = 5) -> pd.DataFrame:
@@ -40,10 +41,13 @@ def generate_seasonal(hours: int = 48, freq_minutes: int = 5, base_rps: float = 
 
 
 if __name__ == "__main__":
+    output_dir = Path(__file__).resolve().parent / "data" / "processed"
+    output_dir.mkdir(parents=True, exist_ok=True)
     for name, df in [
         ("steady", generate_steady()),
         ("spiky", generate_spiky()),
         ("seasonal", generate_seasonal()),
     ]:
-        df.to_csv(f"data/processed/{name}_traffic.csv", index=False)
-        print(f"{name}: {len(df)} rows -> data/processed/{name}_traffic.csv")
+        output_path = output_dir / f"{name}_traffic.csv"
+        df.to_csv(output_path, index=False)
+        print(f"{name}: {len(df)} rows -> {output_path}")

@@ -47,7 +47,7 @@ def forecast(model: Prophet, periods: int, freq: str = "min") -> pd.DataFrame:
 if __name__ == "__main__":
     # Example run against one traffic pattern -- repeat for steady / spiky / seasonal
     # and log each run in docs/EXPERIMENT_LOG.md
-    df = load_traffic_data("data/processed/spiky_traffic.csv")
+    df = load_traffic_data("testing/pattern_exploration/data/processed/spiky_traffic.csv")
     model = fit_vanilla_prophet(df)
     result = forecast(model, periods=60)
     print(result)

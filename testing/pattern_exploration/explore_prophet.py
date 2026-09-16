@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from prophet import Prophet
+from pathlib import Path
 
 from synthetic_traffic import generate_steady, generate_spiky, generate_seasonal
 
@@ -81,18 +82,17 @@ def explore(pattern_name: str, df: pd.DataFrame, forecast_periods: int = 60):
     plt.title(f"{pattern_name} traffic: Prophet forecast")
     plt.xlabel("time")
     plt.ylabel("requests")
-    fig.savefig(f"results/{pattern_name}_forecast.png", dpi=100, bbox_inches="tight")
+    results_dir = Path(__file__).resolve().parent / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_path = results_dir / f"{pattern_name}_forecast.png"
+    fig.savefig(output_path, dpi=100, bbox_inches="tight")
     plt.close(fig)
-    print(f"\nPlot saved to results/{pattern_name}_forecast.png")
+    print(f"\nPlot saved to {output_path}")
 
     return forecast
 
 
 if __name__ == "__main__":
-    import os
-    os.makedirs("results", exist_ok=True)
-    os.makedirs("data/processed", exist_ok=True)
-
     explore("steady", generate_steady())
     explore("spiky", generate_spiky())
     explore("seasonal", generate_seasonal())

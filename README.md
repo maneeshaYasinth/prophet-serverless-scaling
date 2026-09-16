@@ -49,6 +49,9 @@ results/               Per-scenario metrics output (P95/P99, cold starts, cost)
 configs/               Experiment configuration (traffic pattern params, thresholds)
 docs/
   EXPERIMENT_LOG.md    Running log of every experiment run — fill this in as you go
+testing/
+  pattern_exploration/  Vanilla Prophet behavior on steady/spiky/seasonal traffic
+  layer_validation/     Layer 2/3 validation on synthetic spiky traffic
 ```
 
 ## Status
@@ -69,6 +72,14 @@ reactive baseline scenario.
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+Run the local testing environments from the repository root:
+
+```bash
+python testing/pattern_exploration/synthetic_traffic.py
+python testing/pattern_exploration/explore_prophet.py
+python testing/layer_validation/demo_layers_on_synthetic_data.py
 ```
 
 ## Open design questions (tracked honestly, not hidden)

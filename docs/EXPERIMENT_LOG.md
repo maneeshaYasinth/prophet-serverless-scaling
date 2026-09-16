@@ -47,7 +47,7 @@ iteration, not just final numbers. One entry per run.
   - Layer 2 activations: 126 / 150 decisions
   - Layer 3 overrides: 24 / 150 decisions
 - Notes / anomalies: The demo completed without errors and saved
-  `layer_comparison_spiky.png`. This synthetic demo does not measure P95/P99
+  `testing/layer_validation/results/layer_comparison_spiky.png`. This synthetic demo does not measure P95/P99
   latency, cold starts, or cost per request.
 - Next step: validate the layers against real CloudWatch/Locust data.
 
@@ -58,8 +58,9 @@ iteration, not just final numbers. One entry per run.
 - Duration / sample size: 48 hours per pattern, 576 points per pattern at 5-minute intervals
 - Results:
   - Generated `steady_traffic.csv`, `spiky_traffic.csv`, and `seasonal_traffic.csv`
-    under `local-testing/data/processed/`.
-  - Prophet forecast plots generated for all three traffic patterns.
+    under `testing/pattern_exploration/data/processed/`.
+  - Prophet forecast plots generated for all three traffic patterns under
+    `testing/pattern_exploration/results/`.
 - Notes / anomalies: This run prepares reproducible local input data and visual
   forecast outputs. It does not measure P95/P99 latency, cold starts, or cost per
   request.
@@ -80,8 +81,33 @@ iteration, not just final numbers. One entry per run.
   - Layer 2 activations: 126 / 150 decisions
   - Layer 3 overrides: 24 / 150 decisions
 - Notes / anomalies: A rerun of the demo completed successfully and saved
-  `layer_comparison_spiky.png`. Capacity totals vary slightly between Prophet
+  `testing/layer_validation/results/layer_comparison_spiky.png`. Capacity totals vary slightly between Prophet
   runs because of numerical variation in Stan fitting. This synthetic demo does
   not measure P95/P99 latency, cold starts, or cost per request.
 - Next step: validate cold-start and latency impact using the same workloads on
   the real Lambda application.
+
+### Run: 2026-09-16-4
+- Condition: vanilla-prophet and enhanced-prophet local validation
+- Traffic pattern: steady, spiky, seasonal for pattern exploration; spiky for
+  layer validation
+- Enhancement layers active (if enhanced-prophet): confidence-bound / z-score
+- Data source: synthetic
+- Duration / sample size: 576 points per traffic pattern; 150 holdout points for
+  the Layer 2/3 demo
+- Results:
+  - Reorganized local testing into `testing/pattern_exploration/` for vanilla
+    Prophet behavior and `testing/layer_validation/` for enhancement-layer
+    validation.
+  - Moved generated CSV inputs and forecast plots into the corresponding testing
+    environment directories.
+  - Updated both scripts to resolve imports and output paths from their own file
+    locations, so they run from the repository root.
+  - Pattern exploration completed for all three traffic shapes.
+  - Layer validation completed successfully with 100.0% negative lower bounds,
+    126 Layer 2 activations, and 24 Layer 3 overrides.
+- Notes / anomalies: The local validation measures forecast and capacity behavior
+  only. It does not yet measure AWS Lambda P95/P99 latency, cold starts, or cost
+  per request.
+- Next step: run the same separated workflows against real CloudWatch/Locust
+  data and connect the validated controller to Lambda Provisioned Concurrency.

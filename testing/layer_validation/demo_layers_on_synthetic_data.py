@@ -13,7 +13,7 @@ provisioned capacity across three strategies:
     3. Enhanced (Layer 2 + 3)      (yhat_upper + z-score override)
 
 Run:
-    python demo_layers_on_synthetic_data.py
+    python testing/layer_validation/demo_layers_on_synthetic_data.py
 
 Requires: prophet, pandas, numpy, matplotlib (same as your existing
 explore_prophet.py environment).
@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, str(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))))
 
 from src.forecasting.confidence_bound_trigger import (
     compute_target_concurrency,
@@ -138,7 +138,9 @@ def main():
     ax.set_ylabel("requests/sec (capacity, in traffic-equivalent terms)")
     ax.legend()
     fig.tight_layout()
-    out_path = os.path.join(os.path.dirname(__file__), "layer_comparison_spiky.png")
+    results_dir = os.path.join(os.path.dirname(__file__), "results")
+    os.makedirs(results_dir, exist_ok=True)
+    out_path = os.path.join(results_dir, "layer_comparison_spiky.png")
     fig.savefig(out_path, dpi=150)
     print(f"\nPlot saved to {out_path}")
 

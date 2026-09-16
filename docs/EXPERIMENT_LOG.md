@@ -50,3 +50,38 @@ iteration, not just final numbers. One entry per run.
   `layer_comparison_spiky.png`. This synthetic demo does not measure P95/P99
   latency, cold starts, or cost per request.
 - Next step: validate the layers against real CloudWatch/Locust data.
+
+### Run: 2026-09-16-2
+- Condition: vanilla-prophet
+- Traffic pattern: steady, spiky, seasonal (synthetic)
+- Data source: synthetic
+- Duration / sample size: 48 hours per pattern, 576 points per pattern at 5-minute intervals
+- Results:
+  - Generated `steady_traffic.csv`, `spiky_traffic.csv`, and `seasonal_traffic.csv`
+    under `local-testing/data/processed/`.
+  - Prophet forecast plots generated for all three traffic patterns.
+- Notes / anomalies: This run prepares reproducible local input data and visual
+  forecast outputs. It does not measure P95/P99 latency, cold starts, or cost per
+  request.
+- Next step: use the generated data as the common input for the three scaling
+  conditions before moving to real CloudWatch/Locust data.
+
+### Run: 2026-09-16-3
+- Condition: enhanced-prophet
+- Traffic pattern: spiky (synthetic)
+- Enhancement layers active (if enhanced-prophet): confidence-bound / z-score
+- Data source: synthetic
+- Duration / sample size: 150 holdout points
+- Results:
+  - Point-forecast capacity total: 300
+  - Confidence-bound capacity total: 1052 (+250.7% vs point forecast)
+  - Enhanced capacity total: 1120 (+273.3% vs point forecast)
+  - Negative lower-bound forecasts: 100.0% of points
+  - Layer 2 activations: 126 / 150 decisions
+  - Layer 3 overrides: 24 / 150 decisions
+- Notes / anomalies: A rerun of the demo completed successfully and saved
+  `layer_comparison_spiky.png`. Capacity totals vary slightly between Prophet
+  runs because of numerical variation in Stan fitting. This synthetic demo does
+  not measure P95/P99 latency, cold starts, or cost per request.
+- Next step: validate cold-start and latency impact using the same workloads on
+  the real Lambda application.

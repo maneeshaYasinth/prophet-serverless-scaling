@@ -19,5 +19,15 @@ results/*.csv
 *.pem
 aws_credentials*
 
+# Terraform generated state, providers, and local variables
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+sandbox-lambda/build/
+
 # OS
 .DS_Store

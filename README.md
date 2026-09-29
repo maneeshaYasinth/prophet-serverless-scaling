@@ -47,6 +47,7 @@ data/
 notebooks/             Exploratory analysis, plots for the dissertation
 results/               Per-scenario metrics output (P95/P99, cold starts, cost)
 configs/               Experiment configuration (traffic pattern params, thresholds)
+measure_pc_lag.py      Measure Provisioned Concurrency allocation time on the sandbox
 docs/
   EXPERIMENT_LOG.md    Running log of every experiment run — fill this in as you go
 testing/
@@ -57,14 +58,17 @@ testing/
 ## Status
 
 Currently at: Layers 2 and 3 are implemented and validated on synthetic spiky
-traffic data. Layer 2 uses the upper confidence bound for capacity decisions,
-while Layer 3 applies a Z-score residual anomaly override. Vanilla Prophet still
-produces wide, negative-floored confidence intervals on spiky traffic, motivating
-the confidence-bound trigger.
+traffic data. A sandbox reactive-baseline measurement pipeline is now also in
+place: Locust generates the three traffic patterns, a signed boto3 Invoke call
+targets the throwaway Lambda, and per-request JSONL logs are summarized into
+scenario metrics. Provisioned Concurrency allocation lag has been measured on
+the sandbox as part of validating the required forecast lead time.
 
-Next: swap synthetic data for real CloudWatch/Locust data, then build layer 1
-(regressors) and layer 4 (adaptive retraining), in parallel with standing up the
-reactive baseline scenario.
+Next: repeat the baseline for spiky and seasonal traffic, then run the vanilla
+and enhanced Prophet conditions against the same sandbox workloads before
+swapping in real CloudWatch/Locust data. Layer 1 (regressors), layer 4
+(adaptive retraining), and the live forecast-to-controller loop remain future
+work.
 
 ## Setup
 
@@ -82,8 +86,29 @@ python testing/pattern_exploration/explore_prophet.py
 python testing/layer_validation/demo_layers_on_synthetic_data.py
 ```
 
+Run the sandbox reactive baseline from the repository root after deploying
+`sandbox-lambda` and configuring valid AWS credentials:
+
+```bash
+python -m src.baseline.reactive_autoscaling steady
+python -m src.baseline.reactive_autoscaling spiky
+python -m src.baseline.reactive_autoscaling seasonal
+```
+
+Use `SHAPE_RUN_TIME=60` before a command for a short smoke test. The default
+durations are 600 seconds for steady, 1,800 seconds for spiky, and 3,600
+seconds for seasonal traffic. Raw invocation logs are written to
+`results/reactive_baseline_<pattern>_log.jsonl`; summarized results are written
+to `results/reactive-baseline_<pattern>.json`.
+
+The current sandbox baseline uses signed boto3 Lambda Invoke calls rather than
+the Function URL. Its latency includes AWS SDK and network overhead, so these
+measurements are pipeline validation rather than final `snip-infra` results.
+
 ## Open design questions (tracked honestly, not hidden)
 
 - Is the Prophet forecast horizon long enough to cover Provisioned Concurrency allocation time?
   `put_provisioned_concurrency_config` does not allocate instantly — status returns `IN_PROGRESS`
   and ramp-up takes real time. The lead time chosen for forecasting must exceed this.
+  The sandbox measurements in `docs/EXPERIMENT_LOG.md` currently show roughly 84 seconds for
+  scale-up, compared with the configured 10-minute lead time.

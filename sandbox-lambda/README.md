@@ -23,11 +23,40 @@ terraform output function_url
 ## Verify it works
 
 ```bash
-# should be slow the first time (cold start + SIMULATED_INIT_DELAY_SECONDS),
-# fast on the next call within the same warm container
-curl -s $(terraform output -raw function_url) | python3 -m json.tool
-curl -s $(terraform output -raw function_url) | python3 -m json.tool
+# Run from the repository root. The default Function URL auth is AWS_IAM, so
+# use a signed boto3 Invoke call rather than anonymous curl.
+cd ..
+python test_invoke.py
+python test_invoke.py
 ```
+
+The first call should report `cold_start: true` and take a little over the
+configured three-second initialization delay. The second call should reuse the
+warm execution environment. If you explicitly deploy with
+`-var='function_url_auth_type=NONE'`, the Function URL can also be called with
+`curl`, but that is not the path used by the baseline measurement pipeline.
+
+## Run the reactive baseline
+
+From the repository root, after deployment and with valid AWS credentials:
+
+```bash
+python -m src.baseline.reactive_autoscaling steady
+python -m src.baseline.reactive_autoscaling spiky
+python -m src.baseline.reactive_autoscaling seasonal
+```
+
+The baseline invokes the Lambda through signed boto3 calls and uses the shared
+Locust shapes. Default durations are 600 seconds for steady, 1,800 seconds for
+spiky, and 3,600 seconds for seasonal traffic. Use `SHAPE_RUN_TIME=60` for a
+short smoke test. Each run writes raw per-request data to
+`results/reactive_baseline_<pattern>_log.jsonl` and a summary to
+`results/reactive-baseline_<pattern>.json`.
+
+The checked-in steady sandbox run recorded 9,611 successful requests, 17 cold
+starts, P95 of 165.15 ms, P99 of 273.21 ms, and approximately $2.2e-7 per
+request. These latency values include boto3 and network overhead and should not
+be treated as final `snip-infra` results.
 
 ## Test Provisioned Concurrency manually, before your code touches it
 
@@ -56,6 +85,11 @@ print(f"Allocation took {elapsed:.1f}s")
 Log the elapsed time in `docs/EXPERIMENT_LOG.md` and compare it against
 `forecasting.lead_time_minutes` in `configs/experiment_config.yaml`.
 
+The checked-in sandbox measurements were 84.3 seconds for 0 -> 2, 84.4 seconds
+for 2 -> 5, and 12.5 seconds for 5 -> 2. All reached `READY`. Run
+`python measure_pc_lag.py` from the repository root to repeat the measurement;
+the script cleans up the PC configuration in a `finally` block.
+
 ## Tear down between sessions
 
 Provisioned Concurrency bills continuously while allocated, even with zero
@@ -65,6 +99,15 @@ traffic. Delete the PC config after each test session:
 aws lambda delete-provisioned-concurrency-config \
   --function-name "$FN" --qualifier prod --region ap-south-1
 ```
+
+Confirm that the alias has no remaining Provisioned Concurrency configuration
+before destroying the infrastructure. Provisioned Concurrency is created
+out-of-band by the AWS CLI or Python and is not managed as a Terraform
+resource, so run the commands in this order:
+
+1. Delete Provisioned Concurrency.
+2. Confirm it is gone with `aws lambda get-provisioned-concurrency-config`.
+3. Run `terraform destroy`.
 
 Full teardown when you're done with the sandbox entirely:
 

@@ -111,3 +111,40 @@ iteration, not just final numbers. One entry per run.
   per request.
 - Next step: run the same separated workflows against real CloudWatch/Locust
   data and connect the validated controller to Lambda Provisioned Concurrency.
+
+### Run: 2026-09-28-1
+- Condition: reactive-baseline
+- Traffic pattern: steady
+- Data source: sandbox Lambda via signed boto3 Invoke and Locust
+- Duration / sample size: default steady shape, 9,611 successful requests
+- Results:
+  - P95 latency: 165.15 ms
+  - P99 latency: 273.21 ms
+  - Cold start count: 17
+  - Cost per request: approximately $2.2e-7
+- Notes / anomalies: The per-request source log is stored in
+  `results/reactive_baseline_steady_log.jsonl`, with the canonical summary in
+  `results/reactive-baseline_steady.json`. Latency includes signed boto3 and
+  network overhead. This is a sandbox pipeline measurement, not a final
+  `snip-infra` or Function URL result. The baseline runner now supports steady,
+  spiky, and seasonal shapes; only steady has been run and recorded here.
+- Next step: run the same baseline for spiky and seasonal traffic, then repeat
+  the workloads with vanilla and enhanced Prophet control.
+
+### Run: 2026-09-28-2
+- Condition: infrastructure measurement
+- Traffic pattern: not applicable
+- Data source: sandbox Lambda Provisioned Concurrency API
+- Duration / sample size: three allocation changes on alias `prod` in `ap-south-1`
+- Results:
+  - 0 -> 2 provisioned instances: 84.3 seconds
+  - 2 -> 5 provisioned instances: 84.4 seconds
+  - 5 -> 2 provisioned instances: 12.5 seconds
+  - All changes reached `READY`
+- Notes / anomalies: `measure_pc_lag.py` removes the Provisioned Concurrency
+  configuration in a `finally` block. These samples support the configured
+  `forecasting.lead_time_minutes: 10`, but they are limited to this sandbox and
+  these capacity values; more repetitions are needed for a robust lag
+  distribution.
+- Next step: collect repeated lag measurements and include Provisioned
+  Concurrency cost in the proactive-condition comparison.

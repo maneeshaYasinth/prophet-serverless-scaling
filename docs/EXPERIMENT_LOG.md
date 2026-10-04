@@ -148,3 +148,44 @@ iteration, not just final numbers. One entry per run.
   distribution.
 - Next step: collect repeated lag measurements and include Provisioned
   Concurrency cost in the proactive-condition comparison.
+
+### Run: 2026-10-04-1
+- Condition: reactive-baseline (smoke test of the new traffic-pattern harness;
+  no Provisioned Concurrency)
+- Traffic pattern: spiky (`TrafficPatternShape`, `SEED=42`, `BASE_USERS=20`,
+  `SPIKES_PER_HOUR=24`, `DURATION_S=300`)
+- Data source: sandbox Lambda via signed boto3 Invoke and Locust
+  (`sandbox_locustfile_patterns.py`, same `LambdaInvokeUser` as 2026-09-28-1)
+- Duration / sample size: 300 s (12:30:32-12:35:32 +05:30), 83,863 successful
+  requests, 0 errors
+- Results:
+  - P95 latency: 340 ms
+  - P99 latency: 561 ms
+  - Cold start count: 93 (0.11%); 19 at start-up, 74 at spike onset, all within
+    the first 57 s; cold-start latency 2.6-3.7 s (median 3.16 s)
+  - Cost per request: approximately $2.2e-7 (mean billed duration 9 ms, 128 MB)
+  - Per phase:
+
+    | Phase | Users | req/s | P95 | P99 | Cold starts |
+    |---|---|---|---|---|---|
+    | Pre-spike (0-49.5 s) | 20 | 131 | 241 ms | 392 ms | 19 |
+    | Spike (49.5-176.6 s) | 100 | 476 | 360 ms | 616 ms | 74 |
+    | Post-spike (176.6-300 s) | 20 | 137 | 250 ms | 372 ms | 0 |
+- Notes / anomalies:
+  - Raw log: `data/raw/smoke_spiky.jsonl` (gitignored). It also contains 16,420
+    rows from an earlier failed attempt (12:26:55-12:27:58, all
+    `ResourceNotFoundException: Function not found`), because `sandbox_user.py`
+    appends to the log. Those rows are excluded from the figures above.
+  - The two seeded spikes (49.5-122.9 s and 115.1-176.6 s) overlapped and merged
+    into one 127 s spike. Likely only at a high `SPIKES_PER_HOUR` relative to
+    `DURATION_S`.
+  - Possible load-generator bottleneck: 5x users gave only 3.6x throughput, and
+    response P95 rose 241 -> 360 ms while billed duration P95 stayed at
+    15-16 ms. The added tail latency is outside Lambda (client CPU or network),
+    so single-process Locust may confound spike tail latency.
+  - 19 (not 20) start-up cold starts because a manual `aws lambda invoke` just
+    before the run had already warmed one environment.
+- Next step: use a unique `SANDBOX_INVOKE_LOG` per run; re-run with
+  `--processes 4` (or fewer users) to check whether spike P95 drops back toward
+  the pre-spike level; decide whether `TrafficPatternShape` replaces the shapes
+  in `shapes.py` for all nine scenarios.

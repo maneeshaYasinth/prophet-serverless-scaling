@@ -33,3 +33,4 @@ sandbox-lambda/build/
 .DS_Store
 
 CLAUDE.md
+out.json

@@ -189,3 +189,62 @@ iteration, not just final numbers. One entry per run.
   `--processes 4` (or fewer users) to check whether spike P95 drops back toward
   the pre-spike level; decide whether `TrafficPatternShape` replaces the shapes
   in `shapes.py` for all nine scenarios.
+
+### Run: 2026-10-06-1
+- Condition: reactive-baseline (Prophet training-data collection; no
+  Provisioned Concurrency, confirmed empty with
+  `list-provisioned-concurrency-configs` before the run)
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=42`, `BASE_USERS=20`,
+  amplitude +/-60% so 8-32 users, `SEASON_PERIOD_S=1800`, `DURATION_S=5400`)
+- Data source: sandbox Lambda via signed boto3 Invoke and Locust
+  (`sandbox_locustfile_patterns.py`, single process), plus CloudWatch via
+  `cloudwatch_fetch.py`
+- Duration / sample size: 5400 s, 2026-10-06 22:58:51 -> 2026-10-07 00:28:51
+  +05:30 (17:28:51 -> 18:58:51 UTC), 1,123,469 requests, 0 errors
+- Results:
+  - P95 latency: 122 ms (P50 92 ms, P99.9 260 ms, max 3.63 s)
+  - P99 latency: 156 ms
+  - Cold start count: 51 (`cold_start: true`; 0.0045%), 20 at start-up and 31
+    during the run
+  - Cost per request: approximately $2.1e-7 (mean billed duration 5.4 ms, 128 MB)
+  - Per-minute invocations by cycle:
+
+    | Cycle | Mean /min | Peak /min (minute) | Trough /min (minute) |
+    |---|---|---|---|
+    | 1 | 12,347 | 19,389 (6) | 5,286 (22) |
+    | 2 | 12,454 | 19,416 (36) | 5,336 (52) |
+    | 3 | 12,644 | 19,981 (67) | 5,400 (82) |
+- Notes / anomalies:
+  - Files: raw log `data/raw/20261006-2258_seasonal_train.jsonl`; CloudWatch
+    export `data/raw/seasonal_train_run1.csv` (91 rows, `--minutes 100`);
+    trimmed Prophet input `data/processed/seasonal_train_run1.csv` (89 full
+    minutes, 17:29 -> 18:57 UTC, partial first and last minutes dropped). All
+    gitignored. `ds` is tz-naive UTC.
+  - CloudWatch validation: total invocations 1,123,550 (CloudWatch) vs
+    1,123,469 (Locust), +81 (0.007%), probably manual CLI invokes. Per full
+    minute the difference is -0.19% to +0.18% (minute-boundary timing), so
+    CloudWatch `Invocations` is a valid target series for Prophet.
+  - No load-generator bottleneck: throughput stayed at about 10-11 req/s per
+    user from 8 to 32 users (peak about 327 req/s), P95 109-138 ms at every user
+    level, billed P95 15-16 ms throughout.
+  - Cold starts recur on each rising slope (about 464-571 s, 1535-1994 s,
+    3380-3935 s, 5248-5380 s): environments reclaimed in the trough are
+    re-created on the next rise. This is a periodic, forecastable cold-start
+    cost.
+  - Only 5 of the 31 mid-run cold starts were visible to the client (3142,
+    2087, 1774, 1009, 460 ms); the other 26 returned in 70-180 ms despite a
+    billed duration of about 3.1 s. Likely Lambda proactive initialisation
+    (init runs before the request arrives, init time billed to the first
+    invoke). The 20 start-up cold starts all waited about 3.6 s. The
+    `cold_start` flag therefore counts environment inits, not user-visible
+    cold starts.
+  - Throughput per user was higher than in 2026-10-04-1 (about 225 vs 131
+    req/s at 20 users), so network/client conditions vary between sessions.
+  - Regressors: `concurrency` correlates 0.954 with `y` and is not known in
+    advance, so it can only be used lagged (leakage risk); `duration_ms` is
+    nearly flat (3.7-5.6 ms).
+- Next step: fit vanilla Prophet (C2) on the trimmed file with a custom
+  30-minute seasonality (built-in daily/weekly off) and a rolling 10-minute-ahead
+  forecast; define the cold-start metric as both inits and user-visible cold
+  starts (e.g. latency > 1 s); run C1/C2/C3 for a pattern back-to-back in one
+  session; add `--csv`/`--html` to future Locust runs.

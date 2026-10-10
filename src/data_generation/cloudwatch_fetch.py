@@ -28,11 +28,11 @@ METRICS = {
 }
 
 
-def fetch(start, end, period=PERIOD_S):
-    cw = boto3.client("cloudwatch", region_name=REGION)
+def fetch(start, end, period=PERIOD_S, function=FUNCTION, alias=ALIAS, region=REGION):
+    cw = boto3.client("cloudwatch", region_name=region)
     dims = [
-        {"Name": "FunctionName", "Value": FUNCTION},
-        {"Name": "Resource", "Value": f"{FUNCTION}:{ALIAS}"},
+        {"Name": "FunctionName", "Value": function},
+        {"Name": "Resource", "Value": f"{function}:{alias}"},
     ]
     queries = [
         {

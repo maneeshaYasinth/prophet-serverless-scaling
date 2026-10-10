@@ -338,3 +338,43 @@ iteration, not just final numbers. One entry per run.
     `_replay.csv`, `_calibration.png`.
 - Next step: 3-hour seasonal training run plus a separate evaluation run, so
   calibration and replay are out-of-sample and cover rising slopes.
+
+### Run: 2026-10-10-3 (FAILED: load generator throttled)
+- Condition: vanilla-prophet, live dry run (`live_controller.py`, no `--apply`;
+  decisions computed, Provisioned Concurrency never changed)
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=42`, `DURATION_S=5700`)
+- Data source: sandbox Lambda (redeployed with Terraform before the run, now
+  version 6) via signed boto3 Invoke and Locust; controller reading CloudWatch
+- Duration / sample size: 16:45:53 -> 18:05:25 UTC (stopped early), 397,130
+  requests, 11 errors (`Read timeout`); 81 controller ticks (62 warming up,
+  19 decisions, targets 7-11)
+- Results:
+  - Not valid as a seasonal test; no latency/cost results reported.
+  - Cold start count: 21 (19 at start-up, as predicted after one manual invoke)
+- Notes / anomalies:
+  - First attempt (22:08 local) sent 68,521 requests that all failed with
+    `ResourceNotFoundException`: the sandbox stack had been destroyed. Files
+    deleted; stack redeployed with `terraform apply`.
+  - Minutes 0-17: normal seasonal load (9,700-15,900 requests/min, about 9
+    req/s per user, P95 131-158 ms).
+  - From minute 18 (22:33:04 local) throughput capped at about 2,700
+    requests/min (about 45 req/s) regardless of user count (9-31 users).
+    Client P95 rose to 450-2,100 ms while billed duration stayed at 2 ms, so the
+    bottleneck was the client, not Lambda.
+  - Power log: on battery for the whole session; display turned off at
+    22:33:04, the same minute the cap began. No sleep events and no gap in
+    requests longer than 0.88 s, so the Mac did not sleep. Throughput stayed
+    capped after the display came back on.
+  - Likely cause: macOS power management throttling the background Locust
+    process (inside VS Code's terminal) on battery once the display was off;
+    `caffeinate -i` prevents sleep but not throttling. The 2026-10-06 run, on
+    AC power, kept full throughput with the display off.
+  - With flat post-drop data, Prophet's forecasts were unstable (`yhat`
+    568-5,635/min) and targets low (7-11): the controller behaved consistently
+    with its input, but the input was not seasonal.
+  - Files kept: `data/raw/20261010-2215_*`,
+    `results/controller/20261010-2215_c2_seasonal_dryrun.csv`.
+- Next step: rerun on AC power with `caffeinate -dis`, checking throughput
+  against user count in the first 20 minutes; or move Locust to an EC2 instance
+  in ap-south-1 so the load generator is independent of laptop power settings
+  and network.

@@ -6,7 +6,13 @@ aws:
   function_name: "sandbox-lambda"   # switch to snip-infra only after the pipeline is validated here
   region: "ap-south-1"
   alias: "prod"
-  pc_buffer_percent: 10   # AWS-recommended buffer on top of predicted peak concurrency
+  pc_buffer_percent: 0    # was 10 (AWS rule of thumb); dropped because capacity.calibration_quantile
+                          # already adds measured headroom, and stacking both over-provisioned ~30%
+
+capacity:
+  # Forecast -> Provisioned Concurrency conversion (src/controller/capacity_model.py),
+  # fitted by src/evaluation/calibrate_capacity.py from a warm-up run's CloudWatch data.
+  calibration_quantile: 0.95   # headroom = this residual quantile, so the fit covers ~95% of observed minutes
 
 forecasting:
   lead_time_minutes: 10          # how far ahead Prophet forecasts before a scaling action

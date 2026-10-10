@@ -1,0 +1,40 @@
+{
+  "intercept": 3.909275766538385,
+  "slope_per_rps": 0.05504682002504361,
+  "headroom": 1.678739685486847,
+  "buffer_percent": 0,
+  "interval_seconds": 60,
+  "min_concurrency": 1,
+  "max_concurrency": null,
+  "source": "data/processed/seasonal_train_run1.csv",
+  "r_squared": 0.91,
+  "calibration_quantile": 0.95,
+  "horizon_minutes": 10,
+  "replay": {
+    "c2_yhat": {
+      "minutes": 20,
+      "under_provisioned_minutes": 0,
+      "under_provisioned_pct": 0.0,
+      "mean_shortfall_when_under": 0.0,
+      "provisioned_env_minutes": 316,
+      "excess_env_minutes": 54
+    },
+    "c3_yhat_upper": {
+      "minutes": 20,
+      "under_provisioned_minutes": 0,
+      "under_provisioned_pct": 0.0,
+      "mean_shortfall_when_under": 0.0,
+      "provisioned_env_minutes": 332,
+      "excess_env_minutes": 70
+    },
+    "perfect_forecast": {
+      "minutes": 20,
+      "under_provisioned_minutes": 0,
+      "under_provisioned_pct": 0.0,
+      "mean_shortfall_when_under": 0.0,
+      "provisioned_env_minutes": 315,
+      "excess_env_minutes": 53
+    }
+  },
+  "note": "replay is in-sample: calibrated and evaluated on the same run"
+}

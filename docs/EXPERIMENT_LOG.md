@@ -248,3 +248,93 @@ iteration, not just final numbers. One entry per run.
   forecast; define the cold-start metric as both inits and user-visible cold
   starts (e.g. latency > 1 s); run C1/C2/C3 for a pattern back-to-back in one
   session; add `--csv`/`--html` to future Locust runs.
+
+### Run: 2026-10-10-1
+- Condition: vanilla-prophet (offline rolling-origin forecast evaluation; no AWS
+  calls, no scaling actions)
+- Traffic pattern: seasonal
+- Data source: real CloudWatch+Locust (`data/processed/seasonal_train_run1.csv`
+  from Run 2026-10-06-1, 89 full minutes)
+- Duration / sample size: 20 forecast origins (18:38 -> 18:57 UTC) x 10 horizon
+  steps = 200 forecasts
+- Configuration (`configs/experiment_config.yaml`):
+  - Training window W = 60 min (two full cycles), horizon H = 10 min
+    (`lead_time_minutes`), step S = 1 min
+  - Custom seasonality: period 30 min, Fourier order 3; built-in
+    daily/weekly/yearly seasonality off; interval width 0.95; seed 42
+  - At origin t the model is fitted on [t - W, t) only, so no future data leaks
+    into training
+- Results:
+  - P95 / P99 latency, cold starts, cost: not applicable (forecast accuracy only)
+
+    | Horizon | MAE (invocations/min) | MAPE | 95% interval coverage |
+    |---|---|---|---|
+    | 1 min | 355 | 2.23% | 95% |
+    | 2-4 min | 371-389 | 2.40-2.58% | 90% |
+    | 5 min | 207 | 1.65% | 95% |
+    | 6-9 min | 144-161 | 1.45-1.50% | 95-100% |
+    | 10 min | 176 | 1.59% | 95% |
+  - Negative `yhat_lower`: 0% (vs about 100% on synthetic spiky data,
+    Run 2026-09-07-1)
+  - Mean interval width about 1,720-1,740 invocations/min at every horizon
+- Notes / anomalies:
+  - Outputs: `results/rolling_forecast/seasonal_train_run1_forecasts.csv`,
+    `_summary.json`, `_forecast.png`. Reproducible: two runs gave
+    byte-identical CSVs.
+  - Error is higher at h = 1-4 than h = 5-10. This is not a real horizon effect:
+    all 20 origins sit on one descending segment, so short-horizon targets fall
+    on the steep drop just after the 18:36 peak. Too few origins to infer a
+    horizon trend.
+  - Near-best case for Prophet: near-sinusoidal traffic with a known period.
+  - Small dips in actual traffic at about 17:58 and 18:32 UTC (e.g. 14,600 vs
+    about 16,000 expected), probably client-side; candidates for testing the
+    Layer 3 Z-score detector.
+  - `aws.function_name` in the config changed from `snip-infra-handler` to
+    `sandbox-lambda`.
+- Next step: collect a longer seasonal training run (e.g. 3 h) for more origins
+  across all phases of the cycle; convert forecasts to a Provisioned
+  Concurrency target using the measured concurrency-vs-rate relationship.
+
+### Run: 2026-10-10-2
+- Condition: vanilla-prophet vs enhanced-prophet Layer 2 (offline capacity
+  replay; no AWS calls, no scaling actions)
+- Traffic pattern: seasonal
+- Enhancement layers active (if enhanced-prophet): confidence-bound only
+- Data source: real CloudWatch+Locust (`data/processed/seasonal_train_run1.csv`)
+  and the 10-minute-ahead forecasts from Run 2026-10-10-1
+- Duration / sample size: calibration on 89 minutes; replay on 20 minutes
+  (18:38 -> 18:57 UTC)
+- Configuration:
+  - Conversion (`src/controller/capacity_model.py`):
+    target = ceil(intercept + slope x req/s + headroom), with req/s =
+    forecast invocations per minute / 60
+  - Fitted: intercept 3.91, slope 0.0550 per req/s (about 1 environment per
+    18 req/s), R^2 0.910; headroom 1.68 = 95th percentile of fit residuals
+    (`capacity.calibration_quantile: 0.95`)
+  - C2 feeds `yhat`, C3 feeds `yhat_upper` through the identical conversion
+- Results:
+  - P95 / P99 latency, cold starts, cost per request: not applicable (offline)
+
+    | Target | Under-provisioned minutes | Env-minutes | Excess env-minutes |
+    |---|---|---|---|
+    | C2 (`yhat`) | 0 / 20 | 316 | 54 (mean +2.7 per minute) |
+    | C3 (`yhat_upper`) | 0 / 20 | 332 | 70 (mean +3.5 per minute) |
+    | Perfect forecast (actual rate) | 0 / 20 | 315 | 53 |
+- Notes / anomalies:
+  - Little's law (rate x billed duration) predicts about 1 concurrent
+    environment, but CloudWatch measured 7-28, so an empirical calibration is
+    used instead of an assumed formula.
+  - With the 10% AWS buffer on top of the headroom (first pass), excess was 84
+    (C2) / 102 (C3) env-minutes, about 30% over even with a perfect forecast.
+    `aws.pc_buffer_percent` changed 10 -> 0: the measured headroom replaces the
+    rule of thumb.
+  - C2 is within one env-minute of a perfect forecast; C3 adds about 5%
+    capacity with no under-provisioning to prevent on this segment.
+  - Falling-traffic minutes sit below the fit line: concurrency may drop faster
+    than request rate on the way down (possible hysteresis; not yet tested).
+  - In-sample (calibrated and evaluated on the same run) and only covers a
+    falling segment, so it cannot show under-provisioning on a rise.
+  - Outputs: `results/capacity_calibration/seasonal_train_run1.json`,
+    `_replay.csv`, `_calibration.png`.
+- Next step: 3-hour seasonal training run plus a separate evaluation run, so
+  calibration and replay are out-of-sample and cover rising slopes.

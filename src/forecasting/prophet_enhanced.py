@@ -30,15 +30,14 @@ def add_cloudwatch_regressors(model: Prophet, regressor_columns: list[str]) -> P
 
 # --- Layer 2: confidence-bound scaling trigger ------------------------------
 
-def compute_required_concurrency(forecast_df: pd.DataFrame, buffer_percent: float = 10.0) -> pd.DataFrame:
+def compute_required_concurrency(forecast_df: pd.DataFrame, capacity_model) -> pd.DataFrame:
     """
-    Scales to yhat_upper (not yhat) to avoid under-provisioning, plus AWS's
-    recommended buffer on top.
+    Scales to yhat_upper (not yhat) to avoid under-provisioning. yhat_upper is
+    invocations per interval, not a concurrency, so it goes through the
+    calibrated CapacityModel (which also applies AWS's buffer).
     """
     forecast_df = forecast_df.copy()
-    forecast_df["required_concurrency"] = (
-        forecast_df["yhat_upper"].clip(lower=0) * (1 + buffer_percent / 100)
-    ).round().astype(int)
+    forecast_df["required_concurrency"] = forecast_df["yhat_upper"].map(capacity_model.target)
     return forecast_df
 
 

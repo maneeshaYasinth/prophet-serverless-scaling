@@ -18,11 +18,23 @@ e.g. a pandas Series from Prophet's forecast dataframe).
 import math
 
 
+def _convert(forecast_value, capacity_model, requests_per_instance, min_concurrency, max_concurrency):
+    if capacity_model is not None:
+        return capacity_model.target(forecast_value)
+    # Legacy placeholder conversion, kept for the synthetic-data demos only.
+    target = math.ceil(max(forecast_value, 0) / requests_per_instance)
+    target = max(target, min_concurrency)
+    if max_concurrency is not None:
+        target = min(target, max_concurrency)
+    return target
+
+
 def compute_target_concurrency(
     forecast_row,
     requests_per_instance=10,
     min_concurrency=1,
     max_concurrency=None,
+    capacity_model=None,
 ):
     """
     Convert a forecasted *upper-bound* request rate into a target
@@ -40,16 +52,14 @@ def compute_target_concurrency(
             0-concurrency edge cases).
         max_concurrency: optional ceiling, e.g. your account's Provisioned
             Concurrency limit for the function.
+        capacity_model: a calibrated src.controller.capacity_model.CapacityModel.
+            When given, it replaces requests_per_instance and the min/max
+            arguments (the model carries its own bounds).
 
     Returns:
         int: target provisioned concurrency.
     """
-    yhat_upper = max(forecast_row["yhat_upper"], 0)  # never provision for negative demand
-    target = math.ceil(yhat_upper / requests_per_instance)
-    target = max(target, min_concurrency)
-    if max_concurrency is not None:
-        target = min(target, max_concurrency)
-    return target
+    return _convert(forecast_row["yhat_upper"], capacity_model, requests_per_instance, min_concurrency, max_concurrency)
 
 
 def compute_point_forecast_concurrency(
@@ -57,6 +67,7 @@ def compute_point_forecast_concurrency(
     requests_per_instance=10,
     min_concurrency=1,
     max_concurrency=None,
+    capacity_model=None,
 ):
     """
     Same idea, but using yhat (the point forecast) instead of yhat_upper.
@@ -67,9 +78,4 @@ def compute_point_forecast_concurrency(
     comparison fair: any difference in provisioned capacity comes from
     which forecast field is used, not from a different formula.
     """
-    yhat = max(forecast_row["yhat"], 0)
-    target = math.ceil(yhat / requests_per_instance)
-    target = max(target, min_concurrency)
-    if max_concurrency is not None:
-        target = min(target, max_concurrency)
-    return target
+    return _convert(forecast_row["yhat"], capacity_model, requests_per_instance, min_concurrency, max_concurrency)

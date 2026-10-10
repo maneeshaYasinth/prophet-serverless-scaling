@@ -22,6 +22,23 @@ iteration, not just final numbers. One entry per run.
 
 ---
 
+## Known issues
+
+Open problems that affect the validity of results. Update the status when one is
+resolved; details are in the run entries named.
+
+| # | Issue | First seen | Status / mitigation |
+|---|---|---|---|
+| 1 | Laptop load generator throttled on battery with the display off: throughput capped at about 45 req/s regardless of users | 2026-10-10-3 | Open. Run on AC power with `caffeinate -dis` and check throughput vs users in the first 20 min; candidate fix: Locust on EC2 in ap-south-1 |
+| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Open. Not seen at 8-32 users (2026-10-06-1); spiky runs need a fix (more processes, fewer users, or EC2) |
+| 3 | Network conditions vary between sessions (131 vs 225 req/s at 20 users) | 2026-10-06-1 | Mitigated: run C1/C2/C3 for a pattern back-to-back in one session; use CloudWatch `Invocations` as the series |
+| 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
+| 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
+| 6 | `cold_start` flag counts environment inits, not user-visible cold starts (proactive initialisation hides most) | 2026-10-06-1 | Open. Decide the metric: report both, with a latency threshold (e.g. > 1 s) for user-visible |
+| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Open. Recalibrate on a longer training run and evaluate on a separate run |
+| 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
+| 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
+
 ## Runs
 
 ### Run: 2026-09-07-1

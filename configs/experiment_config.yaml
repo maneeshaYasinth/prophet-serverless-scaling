@@ -3,7 +3,7 @@
 # baseline / vanilla-prophet / enhanced-prophet runs, so the 9 scenarios stay comparable.
 
 aws:
-  function_name: "snip-infra-handler"
+  function_name: "sandbox-lambda"   # switch to snip-infra only after the pipeline is validated here
   region: "ap-south-1"
   alias: "prod"
   pc_buffer_percent: 10   # AWS-recommended buffer on top of predicted peak concurrency
@@ -13,6 +13,13 @@ forecasting:
   retrain_window_hours: 24       # sliding window for adaptive retraining (layer 4)
   confidence_interval: 0.95      # Prophet's default; controls yhat_lower/yhat_upper width
   zscore_anomaly_threshold: 2.0  # layer 3: emergency override trigger
+  # Rolling-origin (walk-forward) evaluation: at each origin t, train on
+  # [t - training_window, t) and forecast t+1 .. t+lead_time_minutes.
+  rolling:
+    training_window_minutes: 60  # two full 30-min seasonal cycles
+    step_minutes: 1              # re-forecast every minute (max evaluation points)
+    fourier_order: 3             # terms for the custom seasonality; a sine cycle needs few
+    random_seed: 42              # Prophet samples its uncertainty interval
 
 traffic_patterns:
   steady:
@@ -25,6 +32,7 @@ traffic_patterns:
   seasonal:
     base_rps: 15
     daily_amplitude_pct: 60
+    period_minutes: 30           # compressed "day"; matches SEASON_PERIOD_S=1800 in traffic_shapes.py
 
 metrics:
   - p95_latency_ms

@@ -25,9 +25,35 @@ def load_traffic_data(csv_path: str) -> pd.DataFrame:
     return df[["ds", "y"]]
 
 
-def fit_vanilla_prophet(df: pd.DataFrame, interval_width: float = 0.95) -> Prophet:
-    """Fits a plain Prophet model with no regressors or custom layers."""
-    model = Prophet(interval_width=interval_width)
+def fit_vanilla_prophet(
+    df: pd.DataFrame,
+    interval_width: float = 0.95,
+    seasonality_period_minutes: float | None = None,
+    fourier_order: int = 3,
+) -> Prophet:
+    """
+    Fits a plain Prophet model with no regressors or custom layers.
+
+    Prophet's built-in seasonalities are daily/weekly/yearly, so they cannot
+    see a compressed cycle (e.g. the 30-minute seasonal traffic shape). Passing
+    seasonality_period_minutes swaps them for one custom seasonality of that
+    period. This is model configuration, not an enhancement layer: C2 and C3
+    get the same seasonality so only the layers differ between them.
+    """
+    if seasonality_period_minutes is None:
+        model = Prophet(interval_width=interval_width)
+    else:
+        model = Prophet(
+            interval_width=interval_width,
+            daily_seasonality=False,
+            weekly_seasonality=False,
+            yearly_seasonality=False,
+        )
+        model.add_seasonality(
+            name="cycle",
+            period=seasonality_period_minutes / (24 * 60),  # Prophet periods are in days
+            fourier_order=fourier_order,
+        )
     model.fit(df)
     return model
 

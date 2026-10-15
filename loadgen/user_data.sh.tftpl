@@ -1,0 +1,22 @@
+#!/bin/bash
+# First-boot setup: Python venv with the repo's requirements, owned by ec2-user.
+# Progress: /var/log/loadgen-setup.log; finished when /opt/loadgen-ready exists.
+set -euxo pipefail
+exec > /var/log/loadgen-setup.log 2>&1
+
+dnf install -y git tmux python${python_version} python${python_version}-pip
+
+REPO=/home/ec2-user/prophet-serverless-scaling
+sudo -u ec2-user git clone ${repo_url} "$REPO"
+sudo -u ec2-user python${python_version} -m venv "$REPO/venv"
+sudo -u ec2-user "$REPO/venv/bin/pip" install --upgrade pip
+sudo -u ec2-user "$REPO/venv/bin/pip" install -r "$REPO/requirements.txt"
+
+# Defaults for every ec2-user shell: region for boto3/aws, results bucket for syncs
+cat >> /home/ec2-user/.bashrc <<'EOF'
+export AWS_DEFAULT_REGION=${region}
+export RESULTS_BUCKET=${bucket}
+cd ~/prophet-serverless-scaling 2>/dev/null && source venv/bin/activate
+EOF
+
+touch /opt/loadgen-ready

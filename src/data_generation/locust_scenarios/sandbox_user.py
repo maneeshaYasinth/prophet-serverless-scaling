@@ -23,12 +23,17 @@ import threading
 import time
 
 import boto3
-from locust import User, events, task
+from locust import User, constant, constant_throughput, events, task
 
 REGION = os.environ.get("SANDBOX_REGION", "ap-south-1")
 FUNCTION_NAME = os.environ.get("SANDBOX_FUNCTION_NAME", "sandbox-lambda")
 QUALIFIER = os.environ.get("SANDBOX_QUALIFIER", "prod")
 LOG_PATH = os.environ.get("SANDBOX_INVOKE_LOG", "sandbox_invoke_log.jsonl")
+# Requests per second per user. Unset = no wait (the original behaviour: request
+# rate then depends on round-trip latency). Set it to make the load depend only
+# on the user count, e.g. USER_RPS=10 reproduces the laptop runs' ~10 req/s per
+# user from an EC2 client whose round trip is far shorter.
+USER_RPS = os.environ.get("USER_RPS")
 
 _BILLED_DURATION_RE = re.compile(r"Billed Duration:\s*([\d.]+)\s*ms")
 _log_lock = threading.Lock()
@@ -46,6 +51,7 @@ class LambdaInvokeUser(User):
     --headless summary work normally even though nothing here is HTTP."""
 
     abstract = False
+    wait_time = constant_throughput(float(USER_RPS)) if USER_RPS else constant(0)
 
     def on_start(self):
         self._client = boto3.client("lambda", region_name=REGION)

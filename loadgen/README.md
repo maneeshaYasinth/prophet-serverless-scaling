@@ -33,51 +33,39 @@ when `/opt/loadgen-ready` exists; progress is in `/var/log/loadgen-setup.log`.
 ## Each session
 
 ```bash
-# laptop: start the instance and open a shell on it
-aws ec2 start-instances --region ap-south-1 --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
-$(terraform -chdir=loadgen output -raw connect)
+# laptop: start the instance and land in a shell as ec2-user (venv active, in the repo)
+loadgen/session.sh start
 
-# instance: become ec2-user (venv activates automatically), update code, check the commit
-sudo -iu ec2-user
+# instance: update code, then start a run (returns after a 60 s health check)
 git pull && git rev-parse --short HEAD
-pip install -r requirements.txt   # only if requirements changed
+loadgen/run_experiment.sh seasonal c2 dryrun 95
+
+# optional: watch it (detach with Ctrl-b d; the run keeps going)
+tmux attach
+
+# leave the instance (exit), close the laptop if you like; the run uploads to S3 when done
+
+# laptop, after the run: download results, then stop the instance
+loadgen/session.sh results
+loadgen/session.sh stop
 ```
 
-Run long jobs inside `tmux` so they survive a dropped session
-(`tmux new -s run`, detach with Ctrl-b d, reattach with `tmux attach -t run`):
+`loadgen/session.sh status` shows the instance state and any Provisioned
+Concurrency still allocated; `stop` warns if any is.
 
-```bash
-# window 1: traffic (USER_RPS fixes the load per user, independent of latency)
-RUN=$(date +%Y%m%d-%H%M)_seasonal_c2dry
-TRAFFIC_PATTERN=seasonal DURATION_S=5700 SEED=42 USER_RPS=10 \
-  SANDBOX_INVOKE_LOG=data/raw/$RUN.jsonl \
-  locust -f src/data_generation/locust_scenarios/sandbox_locustfile_patterns.py --headless \
-  --csv data/raw/$RUN --html data/raw/$RUN.html
+### Run modes
 
-# window 2 (Ctrl-b c): controller
-python -m src.controller.live_controller --minutes 95
-```
+| Command | Condition |
+|---|---|
+| `run_experiment.sh PATTERN c1 traffic` | C1 reactive baseline: Locust only |
+| `run_experiment.sh PATTERN c2 dryrun` | Controller decides, Provisioned Concurrency untouched |
+| `run_experiment.sh PATTERN c2 apply` | C2: controller sets Provisioned Concurrency from `yhat` |
+| `run_experiment.sh PATTERN c3-layer2 apply` | C3 (Layer 2 only so far): from `yhat_upper` |
 
-Afterwards, upload results from the instance, then download them on the laptop:
-
-```bash
-# instance
-aws s3 sync data/raw s3://$RESULTS_BUCKET/data/raw
-aws s3 sync results s3://$RESULTS_BUCKET/results
-
-# laptop
-aws s3 sync s3://$(terraform -chdir=loadgen output -raw results_bucket)/data/raw data/raw
-aws s3 sync s3://$(terraform -chdir=loadgen output -raw results_bucket)/results results
-```
-
-Then stop the instance:
-
-```bash
-aws ec2 stop-instances --region ap-south-1 --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
-```
-
-After any `--apply` run, check nothing is left billing:
-
-```bash
-aws lambda list-provisioned-concurrency-configs --function-name sandbox-lambda --region ap-south-1
-```
+Each run is named `UTCDATE-TIME_PATTERN_CONDITION_MODE` and writes
+`data/raw/RUN.jsonl` (+ Locust `.csv`/`.html`), `data/raw/RUN.meta.json`
+(commit, settings, instance type) and `results/controller/RUN.csv`.
+`USER_RPS` (default 10) and `SEED` (default 42) can be overridden as
+environment variables. Preflight refuses to start if Provisioned Concurrency is
+already allocated or another tmux session is running; the run is killed if
+more than 1% of requests fail in the first minute.

@@ -202,6 +202,7 @@ def main():
     p.add_argument("--replay", help="CloudWatch CSV to replay with a simulated clock (no AWS calls)")
     p.add_argument("--minutes", type=int, default=90, help="live run length")
     p.add_argument("--apply", action="store_true", help="actually set Provisioned Concurrency")
+    p.add_argument("--run-name", help="decision log file name (default: timestamp_condition_pattern_mode)")
     args = p.parse_args()
     if args.apply and args.replay:
         p.error("--apply cannot be combined with --replay")
@@ -217,8 +218,8 @@ def main():
     np.random.seed(cfg["forecasting"]["rolling"]["random_seed"])
 
     mode = "replay" if args.replay else ("apply" if args.apply else "dryrun")
-    stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    log = DecisionLog(RESULTS_DIR / f"{stamp}_{args.condition}_{args.pattern}_{mode}.csv")
+    run_name = args.run_name or f"{datetime.now():%Y%m%d-%H%M}_{args.condition}_{args.pattern}_{mode}"
+    log = DecisionLog(RESULTS_DIR / f"{run_name}.csv")
     field = FORECAST_FIELD[args.condition]
     try:
         if args.replay:

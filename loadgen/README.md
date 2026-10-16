@@ -34,7 +34,7 @@ when `/opt/loadgen-ready` exists; progress is in `/var/log/loadgen-setup.log`.
 
 ```bash
 # laptop: start the instance and open a shell on it
-aws ec2 start-instances --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
+aws ec2 start-instances --region ap-south-1 --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
 $(terraform -chdir=loadgen output -raw connect)
 
 # instance: become ec2-user (venv activates automatically), update code, check the commit
@@ -73,7 +73,7 @@ aws s3 sync s3://$(terraform -chdir=loadgen output -raw results_bucket)/results 
 Then stop the instance:
 
 ```bash
-aws ec2 stop-instances --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
+aws ec2 stop-instances --region ap-south-1 --instance-ids $(terraform -chdir=loadgen output -raw instance_id)
 ```
 
 After any `--apply` run, check nothing is left billing:

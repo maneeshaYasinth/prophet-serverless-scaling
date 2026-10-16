@@ -14,8 +14,11 @@ not depend on laptop power management or home network conditions (Known issues
 - Results go to an S3 bucket; `terraform destroy` refuses while it holds data
 
 Cost: about $0.08/h while running (ap-south-1 on-demand; drawn from Free plan
-credits while they last), plus a few cents a
-month for the 20 GiB disk while stopped. **Stop the instance between sessions.**
+credits while they last), plus about $1.60-1.80 a month for the 20 GiB gp3
+disk, which is kept while the instance is stopped. **Stop the instance between
+sessions**, and destroy the stack once the final results are collected:
+download results, empty the bucket (`aws s3 rm s3://<bucket> --recursive`),
+then `terraform destroy` here and in `sandbox-lambda/`.
 
 ## One-time setup (laptop)
 

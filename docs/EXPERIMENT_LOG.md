@@ -29,9 +29,9 @@ resolved; details are in the run entries named.
 
 | # | Issue | First seen | Status / mitigation |
 |---|---|---|---|
-| 1 | Laptop load generator throttled on battery with the display off: throughput capped at about 45 req/s regardless of users | 2026-10-10-3 | Open. Run on AC power with `caffeinate -dis` and check throughput vs users in the first 20 min; candidate fix: Locust on EC2 in ap-south-1 |
-| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Open. Not seen at 8-32 users (2026-10-06-1); spiky runs need a fix (more processes, fewer users, or EC2) |
-| 3 | Network conditions vary between sessions (131 vs 225 req/s at 20 users) | 2026-10-06-1 | Mitigated: run C1/C2/C3 for a pattern back-to-back in one session; use CloudWatch `Invocations` as the series |
+| 1 | Laptop load generator throttled on battery with the display off: throughput capped at about 45 req/s regardless of users | 2026-10-10-3 | Resolved: Locust and the controller now run on EC2 (`loadgen/`, c7i-flex.large in ap-south-1); validated in 2026-10-16-1 |
+| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Partly mitigated: EC2 client; 20 users x 10 req/s delivered exactly 199.7 req/s. Still to check at spiky peak (100 users, about 1,000 req/s) |
+| 3 | Network conditions vary between sessions (131 vs 225 req/s at 20 users) | 2026-10-06-1 | Resolved: same-region EC2 client plus `USER_RPS` (fixed requests per second per user) makes the load independent of latency. Still run conditions back-to-back |
 | 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
 | 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
 | 6 | `cold_start` flag counts environment inits, not user-visible cold starts (proactive initialisation hides most) | 2026-10-06-1 | Open. Decide the metric: report both, with a latency threshold (e.g. > 1 s) for user-visible |
@@ -395,3 +395,34 @@ resolved; details are in the run entries named.
   against user count in the first 20 minutes; or move Locust to an EC2 instance
   in ap-south-1 so the load generator is independent of laptop power settings
   and network.
+
+### Run: 2026-10-16-1
+- Condition: infrastructure validation (EC2 load generator; no scaling actions)
+- Traffic pattern: steady (`TrafficPatternShape`, 20 users, `USER_RPS=10`)
+- Data source: sandbox Lambda via signed boto3 Invoke from EC2 (`loadgen/`,
+  c7i-flex.large, ap-south-1, commit `c45c23c`), plus a 2-minute
+  `live_controller.py` dry run reading CloudWatch
+- Duration / sample size: 120 s, 23,982 requests, 0 failures (after a 12 s
+  aborted first attempt: 1,808 requests, 0 failures)
+- Results:
+  - Throughput: 199.7 req/s (= 20 users x 10 req/s, as configured)
+  - P50 / P95 / P99 / P99.9 / max: 25 / 44 / 46 / 66 / 190 ms
+  - Cold start count: none in the 120 s run (environments still warm from the
+    aborted attempt a minute earlier, whose P99 of 3.3 s was its 20 start-up
+    cold starts)
+  - Cost per request: not computed (smoke test)
+- Notes / anomalies:
+  - Versus the laptop (2026-10-06-1, 20 users): median 92 -> 25 ms, P95
+    122 -> 44 ms, P99 156 -> 46 ms. Warm latency now sits in a tight 25-46 ms
+    band, so a 3 s cold start is far more visible in P99/P99.9.
+  - The Free plan rejected `c6i.large` (not Free-tier eligible); used
+    `c7i-flex.large`, which is non-burstable.
+  - `Connection pool is full ... 169.254.169.254` warnings at start-up are
+    harmless: 20 boto3 clients fetching IAM-role credentials from the instance
+    metadata service at once.
+  - Controller dry run: `train` 0 -> 1 -> 2, no permission errors, so
+    `cloudwatch:GetMetricData` works from the instance role.
+  - The instance clock and file timestamps are UTC.
+- Next step: C2 live dry run, seasonal, 95 minutes, from EC2 with `USER_RPS=10`;
+  then recalibrate the capacity model on EC2-generated data, because the client
+  changed.

@@ -38,6 +38,7 @@ resolved; details are in the run entries named.
 | 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Open. Recalibrate on a longer training run and evaluate on a separate run |
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
+| 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute |
 
 ## Runs
 
@@ -426,3 +427,45 @@ resolved; details are in the run entries named.
 - Next step: C2 live dry run, seasonal, 95 minutes, from EC2 with `USER_RPS=10`;
   then recalibrate the capacity model on EC2-generated data, because the client
   changed.
+
+### Run: 2026-10-16-2
+- Condition: vanilla-prophet, live dry run (decisions computed, Provisioned
+  Concurrency never changed), first valid end-to-end run of the controller
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=42`, `USER_RPS=10`,
+  8-32 users, 30-minute period)
+- Data source: EC2 load generator (c7i-flex.large, commit `879a6cd`) via
+  `run_experiment.sh seasonal c2 dryrun 95`; CloudWatch export
+  `data/raw/seasonal_c2dry_ec2_run1.csv` (trimmed copy in `data/processed/`)
+- Duration / sample size: 95 min, 19:07:32-20:42 UTC, 1,156,490 requests,
+  0 errors; 96 controller ticks (54 warming up, 42 decisions)
+- Results:
+  - P95 latency: 43.8 ms (P50 24.9, P99.9 60.9, max 3,425 ms)
+  - P99 latency: 45.7 ms
+  - Cold start count: 53 inits; 24 user-visible (> 1 s): all 20 start-up
+    plus 4 of 33 mid-run
+  - Cost per request: not computed (billed mean 6.0 ms)
+  - Load accuracy: requests per minute 99.0-101.1% of users x 10 req/s;
+    latency flat across 8-32 users (P95 42-44 ms), so no client bottleneck
+  - CloudWatch vs Locust: 1,156,516 vs 1,156,490 invocations (+26)
+  - Forecast accuracy (peak `yhat` over each decision's window vs actual):
+    32 clean decisions MAPE 0.4% (worst 5.5%); 10 contaminated decisions MAPE
+    14.1% (worst 39.9%)
+- Notes / anomalies:
+  - Bug found: the first 10 decisions (19:39-19:48) trained on a window
+    reaching back to the EC2 smoke test at 18:36-18:39 plus 27 zero-filled
+    minutes, so decisions started after 32 min instead of 63. Once those minutes
+    left the fetch lookback the controller warmed up again until 20:11. Fixed
+    with `--history-start` (Known issue 10); an offline replay reproduces the
+    bug (first decision 19:39) and the fix (first decision 20:11).
+  - Peak concurrency from EC2 is 5-18, against 7-28 from the laptop at the same
+    user counts. The laptop calibration therefore over-provisions: its targets
+    were 11-30, a mean excess of 7.8 environments.
+  - In-sample EC2 fit: concurrency = 1.47 + 0.0432 x req/s (R^2 0.89),
+    headroom 2.04; 2 of 39 decisions under-provisioned and mean excess 2.9 when
+    applied to this run. Needs an out-of-sample check.
+  - Mid-run inits again cluster on rising slopes (about 1,677-2,400 s,
+    3,397-4,203 s, 5,102-5,636 s); 29 of 33 returned in 14-74 ms (proactive
+    initialisation), matching 2026-10-06-1.
+- Next step: switch `controller.calibration_file` to an EC2 calibration; run a
+  second seasonal dry run to evaluate it out of sample; then the first
+  `--apply` run.

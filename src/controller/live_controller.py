@@ -47,16 +47,23 @@ TICK_OFFSET_S = 5  # decide a few seconds after each minute boundary
 
 
 def plan(history: pd.DataFrame, now: pd.Timestamp, cfg: dict, capacity_model: CapacityModel,
-         field: str, pattern: str) -> dict:
+         field: str, pattern: str, history_start: pd.Timestamp | None = None) -> dict:
     """
     One decision. Pure: no AWS, no clock. `history` has ds (tz-naive UTC
     minute starts) and y; only rows with ds < now - cloudwatch_delay are used,
     so nothing the controller could not have seen at `now` leaks in.
+
+    history_start drops earlier rows. Without it, an earlier session inside the
+    fetch lookback (plus the zero-filled gap after it) enters the training
+    window: Run 2026-10-16-2's first 10 decisions trained on a smoke test from
+    30 minutes before and were off by up to 40%.
     """
     ctl, fc = cfg["controller"], cfg["forecasting"]
     roll = fc["rolling"]
     window, step = roll["training_window_minutes"], roll["step_minutes"]
     data_end = now - pd.Timedelta(minutes=ctl["cloudwatch_delay_minutes"])
+    if history_start is not None:
+        history = history[history.ds >= history_start]
     train = history[history.ds < data_end].tail(window)
 
     row = {"now": now, "n_train": len(train), "last_data": train.ds.max() if len(train) else None}
@@ -161,7 +168,7 @@ def run_live(args, cfg, capacity_model, field, log):
             row = {"now": now}
             try:
                 history = fetch(wall - timedelta(minutes=lookback), wall, function=fn, alias=alias, region=region)
-                row = plan(history, now, cfg, capacity_model, field, args.pattern)
+                row = plan(history, now, cfg, capacity_model, field, args.pattern, args.history_start)
             except SystemExit as e:  # fetch() exits when CloudWatch has no datapoints yet
                 row.update(status="no_data", error=str(e))
 
@@ -203,6 +210,8 @@ def main():
     p.add_argument("--minutes", type=int, default=90, help="live run length")
     p.add_argument("--apply", action="store_true", help="actually set Provisioned Concurrency")
     p.add_argument("--run-name", help="decision log file name (default: timestamp_condition_pattern_mode)")
+    p.add_argument("--history-start", type=pd.Timestamp,
+                   help="UTC minute (e.g. 2026-10-16T19:08); ignore CloudWatch data before it")
     args = p.parse_args()
     if args.apply and args.replay:
         p.error("--apply cannot be combined with --replay")

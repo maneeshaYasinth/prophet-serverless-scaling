@@ -35,6 +35,9 @@ FUNCTION="sandbox-lambda"
 USER_RPS="${USER_RPS:-10}"
 SEED="${SEED:-42}"
 RUN="$(date -u +%Y%m%d-%H%M)_${PATTERN}_${CONDITION}_${MODE}"
+# First full minute of this run: the controller trains only on data from here on,
+# never on an earlier session or the partial minute Locust starts in.
+HISTORY_START="$(date -u -d '+1 minute' +%Y-%m-%dT%H:%M)"
 COMMIT="$(git rev-parse --short HEAD)"
 
 # --- Preflight -------------------------------------------------------------------
@@ -56,7 +59,7 @@ cat > "data/raw/$RUN.meta.json" <<EOF
 {"run": "$RUN", "pattern": "$PATTERN", "condition": "$CONDITION", "mode": "$MODE",
  "minutes": $MINUTES, "user_rps": $USER_RPS, "seed": $SEED, "commit": "$COMMIT",
  "instance_type": "$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-type)",
- "started_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+ "started_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "history_start_utc": "$HISTORY_START"}
 EOF
 
 # --- Launch ----------------------------------------------------------------------
@@ -71,7 +74,7 @@ if [ "$MODE" = "traffic" ]; then
 else
   APPLY=""; [ "$MODE" = "apply" ] && APPLY="--apply"
   CONTROLLER="venv/bin/python -m src.controller.live_controller --condition $CONDITION \
-    --pattern $PATTERN --minutes $MINUTES --run-name $RUN $APPLY"
+    --pattern $PATTERN --minutes $MINUTES --run-name $RUN --history-start $HISTORY_START $APPLY"
   # The controller window uploads once both the controller and Locust have exited
   # Locust drops a marker when it exits (a pgrep on its command line would also
   # match this window's own shell, whose command text contains the same words)

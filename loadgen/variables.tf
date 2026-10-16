@@ -17,9 +17,9 @@ variable "alias_name" {
 }
 
 variable "instance_type" {
-  description = "Non-burstable on purpose: a t3 instance runs out of CPU credits during a 90-minute run and throttles, which is the failure this instance exists to remove"
+  description = "Non-burstable on purpose: a t3 instance runs out of CPU credits during a 90-minute run and throttles, which is the failure this instance exists to remove. c7i-flex.large is the non-burstable type the account's Free plan allows (c6i.large is rejected)."
   type        = string
-  default     = "c6i.large"
+  default     = "c7i-flex.large"
 }
 
 variable "repo_url" {

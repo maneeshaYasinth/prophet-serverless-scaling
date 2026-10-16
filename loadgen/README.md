@@ -5,7 +5,7 @@ One EC2 instance in the same region as `sandbox-lambda` that runs Locust and
 not depend on laptop power management or home network conditions (Known issues
 1-3 in `docs/EXPERIMENT_LOG.md`).
 
-- `c6i.large`, non-burstable (a `t3` would run out of CPU credits mid-run and throttle)
+- `c7i-flex.large`, non-burstable and Free-plan eligible (a `t3` would run out of CPU credits mid-run and throttle)
 - No SSH key and no inbound port: shell access through AWS Session Manager
 - IAM role limited to: invoking `sandbox-lambda`, setting its Provisioned
   Concurrency, reading CloudWatch metrics, and the results bucket
@@ -13,7 +13,8 @@ not depend on laptop power management or home network conditions (Known issues
   uses a known commit
 - Results go to an S3 bucket; `terraform destroy` refuses while it holds data
 
-Cost: about $0.09/h while running (ap-south-1 on-demand), plus a few cents a
+Cost: about $0.08/h while running (ap-south-1 on-demand; drawn from Free plan
+credits while they last), plus a few cents a
 month for the 20 GiB disk while stopped. **Stop the instance between sessions.**
 
 ## One-time setup (laptop)

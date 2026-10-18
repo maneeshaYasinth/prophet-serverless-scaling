@@ -1,0 +1,40 @@
+{
+  "intercept": 1.4739172219588395,
+  "slope_per_rps": 0.043175865357811476,
+  "headroom": 2.039730456225475,
+  "buffer_percent": 0,
+  "interval_seconds": 60,
+  "min_concurrency": 1,
+  "max_concurrency": null,
+  "source": "data/processed/seasonal_c2dry_ec2_run1.csv",
+  "r_squared": 0.893,
+  "calibration_quantile": 0.95,
+  "horizon_minutes": 10,
+  "replay": {
+    "c2_yhat": {
+      "minutes": 25,
+      "under_provisioned_minutes": 1,
+      "under_provisioned_pct": 4.0,
+      "mean_shortfall_when_under": 1.0,
+      "provisioned_env_minutes": 295,
+      "excess_env_minutes": 69
+    },
+    "c3_yhat_upper": {
+      "minutes": 25,
+      "under_provisioned_minutes": 1,
+      "under_provisioned_pct": 4.0,
+      "mean_shortfall_when_under": 1.0,
+      "provisioned_env_minutes": 297,
+      "excess_env_minutes": 71
+    },
+    "perfect_forecast": {
+      "minutes": 25,
+      "under_provisioned_minutes": 1,
+      "under_provisioned_pct": 4.0,
+      "mean_shortfall_when_under": 1.0,
+      "provisioned_env_minutes": 294,
+      "excess_env_minutes": 68
+    }
+  },
+  "note": "replay is in-sample: calibrated and evaluated on the same run"
+}

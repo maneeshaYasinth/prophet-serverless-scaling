@@ -21,7 +21,9 @@ controller:
   cloudwatch_delay_minutes: 3      # Lambda metrics publish late; newer minutes are incomplete
   pc_ready_minutes: 2              # measured PC scale-up lag 84 s (Run 2026-09-28-2), rounded up
   max_provisioned_concurrency: 40  # cost/safety cap (~$0.07/h at 40 x 128 MB)
-  calibration_file: "results/capacity_calibration/seasonal_train_run1.json"
+  # EC2-client calibration (Run 2026-10-16-2); the laptop one (seasonal_train_run1.json)
+  # over-provisioned by ~8 environments because concurrency is lower from EC2
+  calibration_file: "results/capacity_calibration/seasonal_c2dry_ec2_run1.json"
 
 forecasting:
   lead_time_minutes: 10         # how far ahead Prophet forecasts before a scaling action

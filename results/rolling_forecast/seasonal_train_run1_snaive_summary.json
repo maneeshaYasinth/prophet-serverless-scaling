@@ -1,0 +1,95 @@
+{
+  "data": "data/processed/seasonal_train_run1.csv",
+  "model": "snaive",
+  "pattern": "seasonal",
+  "training_window_minutes": 60,
+  "horizon_minutes": 10,
+  "step_minutes": 1,
+  "seasonality_period_minutes": 30,
+  "fourier_order": 3,
+  "interval_width": 0.95,
+  "origins": 20,
+  "negative_yhat_lower_pct": 0.0,
+  "per_horizon": [
+    {
+      "h": 1,
+      "n": 20,
+      "mae": 534.8,
+      "mape_pct": 3.725,
+      "coverage_pct": 90.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 2,
+      "n": 20,
+      "mae": 412.55,
+      "mape_pct": 2.886,
+      "coverage_pct": 95.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 3,
+      "n": 20,
+      "mae": 412.2,
+      "mape_pct": 2.904,
+      "coverage_pct": 95.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 4,
+      "n": 20,
+      "mae": 392.35,
+      "mape_pct": 2.823,
+      "coverage_pct": 95.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 5,
+      "n": 20,
+      "mae": 258.05,
+      "mape_pct": 1.949,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 6,
+      "n": 20,
+      "mae": 259.15,
+      "mape_pct": 2.07,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 7,
+      "n": 20,
+      "mae": 260.7,
+      "mape_pct": 2.192,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 8,
+      "n": 20,
+      "mae": 251.9,
+      "mape_pct": 2.229,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 9,
+      "n": 20,
+      "mae": 223.75,
+      "mape_pct": 2.133,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    },
+    {
+      "h": 10,
+      "n": 20,
+      "mae": 197.85,
+      "mape_pct": 2.057,
+      "coverage_pct": 100.0,
+      "mean_band_width": 2243.684
+    }
+  ]
+}

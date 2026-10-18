@@ -39,6 +39,7 @@ resolved; details are in the run entries named.
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute |
+| 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Open. Add seeded noise/drift to `TrafficPatternShape`, or replay real traffic (Azure Functions trace) |
 
 ## Runs
 
@@ -469,3 +470,62 @@ resolved; details are in the run entries named.
 - Next step: switch `controller.calibration_file` to an EC2 calibration; run a
   second seasonal dry run to evaluate it out of sample; then the first
   `--apply` run.
+
+### Run: 2026-10-18-1
+- Condition: capacity recalibration on EC2 data (offline; no AWS calls)
+- Traffic pattern: seasonal
+- Data source: `data/processed/seasonal_c2dry_ec2_run1.csv` (Run 2026-10-16-2)
+- Duration / sample size: fit on 94 minutes; replay on 25 forecast origins
+- Results:
+  - Fit: concurrency = 1.47 + 0.0432 x req/s (R^2 0.893), headroom 2.04
+    (95th percentile of residuals), buffer 0%
+  - Prophet walk-forward on this run: MAPE 0.21-0.30% per horizon, 95% band
+    coverage 80-100% (mean 90%), band width about 86 invocations/min
+  - Replay (in-sample): C2 1/25 minutes under-provisioned, 69 excess
+    env-minutes; C3 1/25, 71; perfect forecast 1/25, 68
+- Notes / anomalies:
+  - `controller.calibration_file` now points at
+    `results/capacity_calibration/seasonal_c2dry_ec2_run1.json`; the laptop
+    calibration over-provisioned by about 8 environments on EC2.
+  - 1 short minute in 25 even with a perfect forecast is expected from a
+    95th-percentile headroom.
+  - Still in-sample: the next EC2 dry run is the out-of-sample check.
+- Next step: second seasonal dry run with this calibration.
+
+### Run: 2026-10-18-2
+- Condition: forecaster benchmark, Prophet vs seasonal naive (offline; no AWS)
+- Traffic pattern: seasonal
+- Data source: `seasonal_train_run1` (laptop, 2026-10-06-1) and
+  `seasonal_c2dry_ec2_run1` (EC2, 2026-10-16-2)
+- Duration / sample size: identical walk-forward windows for both models (W = 60,
+  H = 10, S = 1): 200 paired forecasts (laptop), 250 (EC2)
+- Configuration: seasonal naive = value one 30-minute cycle earlier
+  (`src/forecasting/seasonal_naive.py`); its band = 2.5th/97.5th percentiles of
+  the window's seasonal differences
+- Results:
+
+  | Data | Model | MAE (inv/min) | MAPE | Coverage | Band width |
+  |---|---|---|---|---|---|
+  | Laptop | Prophet | 250.2 | 1.89% | 94.5% | 1,730 |
+  | Laptop | Seasonal naive | 320.3 | 2.50% | 97.5% | 2,244 |
+  | EC2 | Prophet | 22.7 | 0.27% | 90.0% | 86 |
+  | EC2 | Seasonal naive | 7.3 | 0.09% | 84.0% | 28 |
+
+  - Laptop: Prophet has 22% less error, closer in 61% of forecasts.
+  - EC2: seasonal naive has 3.1x less error; Prophet closer in only 18%.
+- Notes / anomalies:
+  - On noisy traffic (laptop, varying network) Prophet's smooth seasonal fit
+    averages out noise that a copy of the last cycle repeats. On EC2 traffic,
+    which repeats almost exactly (fixed requests per user, no noise), copying
+    the last cycle is near-perfect and Prophet's 3-term Fourier fit carries a
+    small systematic error.
+  - The gap does not change any capacity decision: 15.4 invocations/min is
+    0.26 req/s, about 0.01 environments with the EC2 fit. Forecast accuracy is
+    not the limiting factor; the capacity conversion and headroom are.
+  - Prophet's value therefore has to come from what seasonal naive lacks:
+    calibrated bands (Layer 2), trend and drift handling, regressors and
+    retraining (Layers 1 and 4). Recorded as Known issue 11.
+  - Outputs: `results/rolling_forecast/<name>_snaive_*`, `<name>_comparison.csv`,
+    `_comparison_by_horizon.csv`, `_comparison.png`.
+- Next step: decide how to make the seasonal traffic realistic (seeded noise and
+  drift, or a real trace) before the reported runs.

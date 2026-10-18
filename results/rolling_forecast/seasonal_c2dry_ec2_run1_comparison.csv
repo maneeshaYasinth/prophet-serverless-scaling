@@ -1,0 +1,3 @@
+model,forecasts,mae,mape_pct,coverage_pct,mean_band_width
+prophet,250,22.7,0.27,90.0,86.3
+seasonal_naive,250,7.3,0.09,84.0,28.1

@@ -29,6 +29,7 @@ import pandas as pd
 import yaml
 
 from src.forecasting.prophet_baseline import fit_vanilla_prophet
+from src.forecasting.seasonal_naive import seasonal_naive_forecast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "configs" / "experiment_config.yaml"
@@ -49,23 +50,29 @@ def rolling_origin_forecast(
     interval_width: float,
     seasonality_period_minutes: float,
     fourier_order: int,
+    model: str = "prophet",
 ) -> pd.DataFrame:
     """
     Returns one row per (origin, horizon step) with columns:
     origin, ds, h, y, yhat, yhat_lower, yhat_upper.
     `df` must be a regular 1-minute series with columns ds, y.
+    model: "prophet" (C2) or "snaive" (seasonal-naive benchmark); both see
+    exactly the same windows, so their errors are directly comparable.
     """
     rows = []
     for origin in range(window, len(df) - horizon + 1, step):
         train = df.iloc[origin - window : origin]
         actual = df.iloc[origin : origin + horizon]
-        model = fit_vanilla_prophet(
-            train,
-            interval_width=interval_width,
-            seasonality_period_minutes=seasonality_period_minutes,
-            fourier_order=fourier_order,
-        )
-        fcst = model.predict(actual[["ds"]])
+        if model == "snaive":
+            fcst = seasonal_naive_forecast(train, actual.ds, seasonality_period_minutes, interval_width)
+        else:
+            fitted = fit_vanilla_prophet(
+                train,
+                interval_width=interval_width,
+                seasonality_period_minutes=seasonality_period_minutes,
+                fourier_order=fourier_order,
+            )
+            fcst = fitted.predict(actual[["ds"]])
         for h, (a, f) in enumerate(zip(actual.itertuples(), fcst.itertuples()), start=1):
             rows.append(
                 {
@@ -142,6 +149,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("data", help="Prophet-ready CSV with ds, y (1-minute steps)")
     p.add_argument("--pattern", default="seasonal", help="traffic_patterns key in the config")
+    p.add_argument("--model", choices=["prophet", "snaive"], default="prophet",
+                   help="forecaster; snaive outputs get a _snaive suffix")
     args = p.parse_args()
 
     cfg = yaml.safe_load(CONFIG_PATH.read_text())
@@ -162,16 +171,18 @@ def main():
         interval_width=fc["confidence_interval"],
         seasonality_period_minutes=period,
         fourier_order=roll["fourier_order"],
+        model=args.model,
     )
     if results.empty:
         raise SystemExit("No complete forecast origins: series shorter than window + horizon.")
     summary = summarize(results)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    name = Path(args.data).stem
+    name = Path(args.data).stem + ("" if args.model == "prophet" else f"_{args.model}")
     results.to_csv(RESULTS_DIR / f"{name}_forecasts.csv", index=False)
     meta = {
         "data": args.data,
+        "model": args.model,
         "pattern": args.pattern,
         "training_window_minutes": roll["training_window_minutes"],
         "horizon_minutes": horizon,

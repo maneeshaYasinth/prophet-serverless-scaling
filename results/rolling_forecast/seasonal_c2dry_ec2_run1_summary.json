@@ -1,0 +1,94 @@
+{
+  "data": "data/processed/seasonal_c2dry_ec2_run1.csv",
+  "pattern": "seasonal",
+  "training_window_minutes": 60,
+  "horizon_minutes": 10,
+  "step_minutes": 1,
+  "seasonality_period_minutes": 30,
+  "fourier_order": 3,
+  "interval_width": 0.95,
+  "origins": 25,
+  "negative_yhat_lower_pct": 0.0,
+  "per_horizon": [
+    {
+      "h": 1,
+      "n": 25,
+      "mae": 27.082,
+      "mape_pct": 0.301,
+      "coverage_pct": 84.0,
+      "mean_band_width": 85.901
+    },
+    {
+      "h": 2,
+      "n": 25,
+      "mae": 20.784,
+      "mape_pct": 0.224,
+      "coverage_pct": 100.0,
+      "mean_band_width": 85.725
+    },
+    {
+      "h": 3,
+      "n": 25,
+      "mae": 20.462,
+      "mape_pct": 0.242,
+      "coverage_pct": 80.0,
+      "mean_band_width": 85.818
+    },
+    {
+      "h": 4,
+      "n": 25,
+      "mae": 25.509,
+      "mape_pct": 0.295,
+      "coverage_pct": 92.0,
+      "mean_band_width": 86.098
+    },
+    {
+      "h": 5,
+      "n": 25,
+      "mae": 17.317,
+      "mape_pct": 0.205,
+      "coverage_pct": 100.0,
+      "mean_band_width": 85.91
+    },
+    {
+      "h": 6,
+      "n": 25,
+      "mae": 23.574,
+      "mape_pct": 0.297,
+      "coverage_pct": 84.0,
+      "mean_band_width": 86.094
+    },
+    {
+      "h": 7,
+      "n": 25,
+      "mae": 22.516,
+      "mape_pct": 0.261,
+      "coverage_pct": 96.0,
+      "mean_band_width": 86.669
+    },
+    {
+      "h": 8,
+      "n": 25,
+      "mae": 21.817,
+      "mape_pct": 0.263,
+      "coverage_pct": 88.0,
+      "mean_band_width": 86.102
+    },
+    {
+      "h": 9,
+      "n": 25,
+      "mae": 21.796,
+      "mape_pct": 0.274,
+      "coverage_pct": 88.0,
+      "mean_band_width": 87.706
+    },
+    {
+      "h": 10,
+      "n": 25,
+      "mae": 26.022,
+      "mape_pct": 0.299,
+      "coverage_pct": 88.0,
+      "mean_band_width": 87.3
+    }
+  ]
+}

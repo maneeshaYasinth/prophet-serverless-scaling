@@ -39,7 +39,7 @@ resolved; details are in the run entries named.
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute |
-| 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Open. Add seeded noise/drift to `TrafficPatternShape`, or replay real traffic (Azure Functions trace) |
+| 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated in simulation (2026-10-18-3): seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); to confirm live. Real Azure Functions trace planned before the thesis |
 
 ## Runs
 
@@ -529,3 +529,30 @@ resolved; details are in the run entries named.
     `_comparison_by_horizon.csv`, `_comparison.png`.
 - Next step: decide how to make the seasonal traffic realistic (seeded noise and
   drift, or a real trace) before the reported runs.
+
+### Run: 2026-10-18-3
+- Condition: traffic-realism check, Prophet vs seasonal naive on simulated
+  traffic (offline: `TrafficPatternShape.users_at` evaluated directly, no Locust
+  or AWS)
+- Traffic pattern: seasonal, 95 min, `SEED=42`, 10 req/s per user
+- Data source: simulated per-minute invocations (mean users x 600), first and
+  last minute dropped
+- Configuration: new `traffic_realism` config section: `noise_pct: 10`
+  (per-minute multiplicative noise, capped at 3 sigma), `noise_interval_s: 60`,
+  `drift_pct: 20` (linear rise in the base level over the run); separate RNG
+  stream for noise
+- Results:
+
+  | Traffic | Users | Prophet MAE | Seasonal naive MAE | Skill | Coverage (P / SN) |
+  |---|---|---|---|---|---|
+  | Noiseless | 8-32 | 35 | 0 | n/a (naive exact) | 91% / 100% |
+  | Realism on | 8-41 | 1,048 | 1,345 | +0.22 | 92% / 92% |
+- Notes / anomalies:
+  - Checks passed: realism off reproduces the old seasonal shape exactly; spike
+    schedule identical with noise on; same seed gives identical traffic.
+  - Noiseless simulated traffic repeats exactly, so seasonal naive has zero
+    error, matching the EC2 finding (2026-10-18-2).
+  - With realism on, peak load is about 410 req/s (41 users); EC2 has only been
+    validated at 200 req/s, so watch throughput against design in the next run.
+- Next step: second seasonal dry run on EC2 with realism on; it doubles as the
+  out-of-sample test of the EC2 capacity calibration.

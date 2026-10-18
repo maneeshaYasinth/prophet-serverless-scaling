@@ -33,6 +33,8 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-south-1}"
 : "${RESULTS_BUCKET:?RESULTS_BUCKET not set (run as ec2-user: sudo -iu ec2-user)}"
 FUNCTION="sandbox-lambda"
 USER_RPS="${USER_RPS:-10}"
+# Noise and drift from experiment_config.yaml (traffic_realism); env overrides still win
+eval "$(venv/bin/python -m src.data_generation.traffic_env 2>/dev/null | sed 's/^export \([A-Z_]*\)=\(.*\)$/export \1="${\1:-\2}"/')"
 SEED="${SEED:-42}"
 RUN="$(date -u +%Y%m%d-%H%M)_${PATTERN}_${CONDITION}_${MODE}"
 # First full minute of this run: the controller trains only on data from here on,
@@ -58,6 +60,7 @@ mkdir -p data/raw results/controller
 cat > "data/raw/$RUN.meta.json" <<EOF
 {"run": "$RUN", "pattern": "$PATTERN", "condition": "$CONDITION", "mode": "$MODE",
  "minutes": $MINUTES, "user_rps": $USER_RPS, "seed": $SEED, "commit": "$COMMIT",
+ "noise_pct": $NOISE_PCT, "noise_interval_s": $NOISE_INTERVAL_S, "drift_pct": $DRIFT_PCT,
  "instance_type": "$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-type)",
  "started_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "history_start_utc": "$HISTORY_START"}
 EOF
@@ -65,6 +68,7 @@ EOF
 # --- Launch ----------------------------------------------------------------------
 SYNC="aws s3 sync data/raw s3://$RESULTS_BUCKET/data/raw --only-show-errors && aws s3 sync results s3://$RESULTS_BUCKET/results --only-show-errors && echo 'Uploaded to S3. Finished.'"
 LOCUST="TRAFFIC_PATTERN=$PATTERN DURATION_S=$((MINUTES * 60)) SEED=$SEED USER_RPS=$USER_RPS \
+  NOISE_PCT=$NOISE_PCT NOISE_INTERVAL_S=$NOISE_INTERVAL_S DRIFT_PCT=$DRIFT_PCT \
   SANDBOX_INVOKE_LOG=data/raw/$RUN.jsonl venv/bin/locust \
   -f src/data_generation/locust_scenarios/sandbox_locustfile_patterns.py --headless \
   --csv data/raw/$RUN --html data/raw/$RUN.html"

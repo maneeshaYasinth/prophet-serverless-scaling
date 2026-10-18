@@ -38,6 +38,14 @@ forecasting:
     fourier_order: 3             # terms for the custom seasonality; a sine cycle needs few
     random_seed: 42              # Prophet samples its uncertainty interval
 
+# Realism added to every pattern by TrafficPatternShape (seeded, so identical across
+# C1/C2/C3). Without it the EC2 traffic repeats almost exactly and a copy-last-cycle
+# forecast beats Prophet 3x (Run 2026-10-18-2, Known issue 11).
+traffic_realism:
+  noise_pct: 10          # per-interval multiplicative noise, standard deviation in %
+  noise_interval_s: 60   # noise changes once a minute, the forecast resolution
+  drift_pct: 20          # base level rises 20% over a run, like a service gaining users
+
 traffic_patterns:
   steady:
     base_rps: 20

@@ -2,6 +2,8 @@
 
 Log every run here, even failed/partial ones — the panel and your supervisor will want to see
 iteration, not just final numbers. One entry per run.
+Figures are embedded under the run that produced them, each with how to read it and what
+it shows (view in the Markdown preview or on GitHub).
 
 ## Template (copy for each new run)
 
@@ -30,16 +32,18 @@ resolved; details are in the run entries named.
 | # | Issue | First seen | Status / mitigation |
 |---|---|---|---|
 | 1 | Laptop load generator throttled on battery with the display off: throughput capped at about 45 req/s regardless of users | 2026-10-10-3 | Resolved: Locust and the controller now run on EC2 (`loadgen/`, c7i-flex.large in ap-south-1); validated in 2026-10-16-1 |
-| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Partly mitigated: EC2 client; 20 users x 10 req/s delivered exactly 199.7 req/s. Still to check at spiky peak (100 users, about 1,000 req/s) |
+| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Partly mitigated: EC2 client delivers 98.4-100.2% of design per minute up to 40 users (400 req/s, 2026-10-18-5), P95 flat at 45 ms. Still to check at spiky peak (100 users, about 1,000 req/s) |
 | 3 | Network conditions vary between sessions (131 vs 225 req/s at 20 users) | 2026-10-06-1 | Resolved: same-region EC2 client plus `USER_RPS` (fixed requests per second per user) makes the load independent of latency. Still run conditions back-to-back |
 | 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
 | 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
 | 6 | `cold_start` flag counts environment inits, not user-visible cold starts (proactive initialisation hides most) | 2026-10-06-1 | Open. Decide the metric: report both, with a latency threshold (e.g. > 1 s) for user-visible |
-| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Open. Recalibrate on a longer training run and evaluate on a separate run |
+| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Open, now tested out of sample (2026-10-18-5): the EC2 fit transfers below about 250 req/s but under-predicts above its fitted range (up to 10 environments at 400 req/s). Calibrate on data covering the full load range; evaluate on a held-out run |
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
-| 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute |
-| 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated in simulation (2026-10-18-3): seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); to confirm live. Real Azure Functions trace planned before the thesis |
+| 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute; confirmed live in 2026-10-18-5 (first decision at minute 64) |
+| 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated: seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); Prophet skill over seasonal naive +0.22 in simulation (2026-10-18-3) and +0.21 live (2026-10-18-5). Real Azure Functions trace planned before the thesis |
+| 12 | Start state not controlled: a run started minutes after earlier traffic finds environments already warm, so it has no start-up cold starts (0 in 2026-10-18-5 vs 20 in 2026-10-16-2) | 2026-10-18-5 | Open. Fix a start protocol before the reported runs (e.g. a minimum idle gap, or publish a new version so every run starts cold) and note it in each meta file |
+| 13 | A run started on stale code after `git pull` failed on the instance | 2026-10-18-4 | Resolved: `run_experiment.sh` refuses to start unless HEAD equals `origin/main` |
 
 ## Runs
 
@@ -68,6 +72,19 @@ resolved; details are in the run entries named.
 - Notes / anomalies: The demo completed without errors and saved
   `testing/layer_validation/results/layer_comparison_spiky.png`. This synthetic demo does not measure P95/P99
   latency, cold starts, or cost per request.
+- Figure:
+
+  ![Provisioned capacity under three strategies, synthetic spiky traffic](../testing/layer_validation/results/layer_comparison_spiky.png)
+
+  *Provisioned capacity (in requests/s) for point-forecast (orange), confidence-bound
+  (blue) and Layer 2+3 (green dashed) scaling; black dots are actual traffic.*
+  - How to read it: a line above the dots is spare capacity (cost); a dot above
+    the line is unserved demand (cold starts).
+  - What it shows: `yhat` (orange) sits at about 20 req/s, so every spike at about
+    80 req/s is unserved. `yhat_upper` (blue) covers 70 req/s all the time, which
+    is 7x the normal load. Layer 3 (green) jumps to about 110 when a spike is
+    detected, but only after it has started. The blue line sits under the green
+    one wherever the two agree. Synthetic data only.
 - Next step: validate the layers against real CloudWatch/Locust data.
 
 ### Run: 2026-09-16-2
@@ -83,6 +100,18 @@ resolved; details are in the run entries named.
 - Notes / anomalies: This run prepares reproducible local input data and visual
   forecast outputs. It does not measure P95/P99 latency, cold starts, or cost per
   request.
+- Figure:
+
+  ![Vanilla Prophet forecast on synthetic spiky traffic](../testing/pattern_exploration/results/spiky_forecast.png)
+
+  *Vanilla Prophet fit on 48 h of synthetic spiky traffic. Black dots are
+  observations, the line is `yhat`, the shaded band is the 95% interval.*
+  (`steady_forecast.png` and `seasonal_forecast.png` in the same folder.)
+  - What it shows: Prophet cannot place short random spikes in time, so it
+    averages them: `yhat` (about 20) sits above the normal level (about 10)
+    and far below the spikes (about 80), and the band spans -25 to 65. A
+    negative lower bound is meaningless for a request count. This is the
+    motivation for Layer 3 (detect spikes rather than forecast them).
 - Next step: use the generated data as the common input for the three scaling
   conditions before moving to real CloudWatch/Locust data.
 
@@ -310,6 +339,20 @@ resolved; details are in the run entries named.
     Layer 3 Z-score detector.
   - `aws.function_name` in the config changed from `snip-infra-handler` to
     `sandbox-lambda`.
+- Figure:
+
+  ![Walk-forward Prophet forecast, laptop seasonal run](../results/rolling_forecast/seasonal_train_run1_forecast.png)
+
+  *(a) Actual invocations per minute (blue) and the 10-minute-ahead forecast
+  (orange, 95% band shaded) from each origin. (b) Mean absolute percentage
+  error by forecast horizon.*
+  - How to read it: forecasts start at the dashed line, once 60 minutes of
+    history exist. Each orange point was made 10 minutes before that time,
+    using only earlier data.
+  - What it shows: the forecast follows the falling and rising slope within
+    about 2%, and the actual line stays inside the band. The higher error at
+    1-4 minutes comes from the steep drop just after the peak, not a real
+    horizon effect (see notes).
 - Next step: collect a longer seasonal training run (e.g. 3 h) for more origins
   across all phases of the cycle; convert forecasts to a Provisioned
   Concurrency target using the measured concurrency-vs-rate relationship.
@@ -355,6 +398,20 @@ resolved; details are in the run entries named.
     falling segment, so it cannot show under-provisioning on a rise.
   - Outputs: `results/capacity_calibration/seasonal_train_run1.json`,
     `_replay.csv`, `_calibration.png`.
+- Figure:
+
+  ![Capacity calibration, laptop seasonal run](../results/capacity_calibration/seasonal_train_run1_calibration.png)
+
+  *(a) Peak concurrency per minute against request rate, with the least-squares
+  line and line + headroom. (b) What C2 (`yhat`) and C3 (`yhat_upper`) would have
+  provisioned from 10-minute-ahead forecasts, against actual concurrency.*
+  - How to read it: (a) is the conversion rule: read a forecast rate on the x
+    axis and go up to the dashed line to get the target. In (b), target above
+    actual = no cold starts but extra cost.
+  - What it shows: concurrency rises almost linearly with load (R^2 0.91), so a
+    measured rule replaces Little's law, which predicts about 1. Both targets
+    stay above actual in all 20 minutes; C3 is one environment above C2 most of
+    the time. In-sample and on a falling segment only.
 - Next step: 3-hour seasonal training run plus a separate evaluation run, so
   calibration and replay are out-of-sample and cover rising slopes.
 
@@ -490,6 +547,23 @@ resolved; details are in the run entries named.
   - 1 short minute in 25 even with a perfect forecast is expected from a
     95th-percentile headroom.
   - Still in-sample: the next EC2 dry run is the out-of-sample check.
+- Figures:
+
+  ![Walk-forward Prophet forecast, EC2 seasonal run 1](../results/rolling_forecast/seasonal_c2dry_ec2_run1_forecast.png)
+
+  *Same layout as Run 2026-10-10-1, on the first EC2 run.*
+  - What it shows: EC2 traffic is a near-perfect sine (fixed requests per user,
+    no network noise), so the forecast lies on top of the actual line, the
+    band is too narrow to see, and the error is 0.2-0.3%. This "too easy"
+    traffic led to Known issue 11.
+
+  ![Capacity calibration, EC2 seasonal run 1](../results/capacity_calibration/seasonal_c2dry_ec2_run1_calibration.png)
+
+  *Same layout as Run 2026-10-10-2, on EC2 data.*
+  - What it shows: from EC2 the line is lower (5-18 environments vs 7-28 from
+    the laptop), which is why the laptop calibration was replaced. In (b) C2
+    and C3 overlap except at 20:28-20:30, because the band is so narrow. One
+    minute (20:17) is under-provisioned, as expected from a 95% headroom.
 - Next step: second seasonal dry run with this calibration.
 
 ### Run: 2026-10-18-2
@@ -527,6 +601,19 @@ resolved; details are in the run entries named.
     retraining (Layers 1 and 4). Recorded as Known issue 11.
   - Outputs: `results/rolling_forecast/<name>_snaive_*`, `<name>_comparison.csv`,
     `_comparison_by_horizon.csv`, `_comparison.png`.
+- Figures:
+
+  ![Prophet vs seasonal naive, laptop data](../results/rolling_forecast/seasonal_train_run1_comparison.png)
+  ![Prophet vs seasonal naive, EC2 data](../results/rolling_forecast/seasonal_c2dry_ec2_run1_comparison.png)
+
+  *Mean absolute error by forecast horizon for Prophet (blue) and seasonal
+  naive (grey) on the same walk-forward origins: laptop data (top), EC2 data
+  (bottom). Lower is better.*
+  - How to read it: seasonal naive is the "copy the last cycle" baseline that
+    any forecaster has to beat to be worth using.
+  - What it shows: on noisy laptop traffic Prophet is lower at every horizon.
+    On noise-free EC2 traffic the baseline is about 3x better (note the y axis
+    is only 0-28 there), because a repeating sine is copied exactly.
 - Next step: decide how to make the seasonal traffic realistic (seeded noise and
   drift, or a real trace) before the reported runs.
 
@@ -556,3 +643,107 @@ resolved; details are in the run entries named.
     validated at 200 req/s, so watch throughput against design in the next run.
 - Next step: second seasonal dry run on EC2 with realism on; it doubles as the
   out-of-sample test of the EC2 capacity calibration.
+
+### Run: 2026-10-18-4 (ABORTED: stale code)
+- Condition: vanilla-prophet, live dry run (intended as the out-of-sample run)
+- Traffic pattern: seasonal, 95 min planned
+- Data source: EC2 load generator, run `20261018-0742_seasonal_c2_dryrun`
+- Duration / sample size: about 5 min (07:42-07:47 UTC), 75,619 requests, 0
+  failures; stopped with the instance
+- Results: none used
+- Notes / anomalies:
+  - `git pull` on the instance failed (two untracked controller CSVs from
+    2026-10-16-2 would have been overwritten), so the run used commit `879a6cd`:
+    no traffic realism, no `--history-start` fix, laptop calibration. Spotted from
+    the commit in the start banner. Known issue 13; `run_experiment.sh` now
+    refuses to start unless HEAD equals `origin/main`.
+  - Its traffic ended about 2.6 min before 2026-10-18-5 started, which left
+    that run's environments warm (Known issue 12).
+- Next step: move the CSVs aside, pull, rerun (2026-10-18-5).
+
+### Run: 2026-10-18-5
+- Condition: vanilla-prophet, live dry run (decisions computed, Provisioned
+  Concurrency never changed); out-of-sample test of the EC2 capacity calibration
+  and first live run with traffic realism
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=42`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `NOISE_INTERVAL_S=60`, `DRIFT_PCT=20`; 8-40 users)
+- Data source: EC2 load generator (c7i-flex.large, commit `d71b1e0`), run
+  `20261018-0750_seasonal_c2_dryrun`; CloudWatch export
+  `data/raw/seasonal_c2dry_ec2_run2.csv`, trimmed to 07:51-09:24 in
+  `data/processed/`
+- Duration / sample size: 95 min, 07:50:02-09:25 UTC, 1,270,623 requests, 0
+  failures; 95 controller ticks (64 warming up, 31 decisions, 29 scorable)
+- Results:
+  - P95 latency: 45 ms (P50 27, P99.9 65, max 3,125 ms)
+  - P99 latency: 48 ms
+  - Cold start count: 57 inits, all mid-run; 8 user-visible (> 1 s), at 1,803,
+    1,984, 2,403 and 3,606 s; 47 returned in under 100 ms. No start-up cold
+    starts because the aborted run had warmed the function (Known issue 12)
+  - Cost per request: not computed (billed mean 5.9 ms)
+  - Load accuracy: 98.4-100.2% of users x 10 req/s per minute (mean 100.0%),
+    including 11 minutes at 35-40 users (about 400 req/s); P95 45 ms at every
+    load level
+  - CloudWatch vs Locust: 1,270,678 vs 1,270,623 invocations (+55)
+  - Forecasters, walk-forward (W = 60, H = 10, S = 1, 250 paired forecasts):
+
+    | Model | MAE (inv/min) | MAPE | Coverage | Band width |
+    |---|---|---|---|---|
+    | Prophet | 1,005.0 | 7.99% | 92.4% | 4,465 |
+    | Seasonal naive | 1,266.5 | 9.46% | 92.0% | 5,199 |
+
+    Skill +0.21, Prophet closer in 61% of forecasts (simulation predicted +0.22).
+  - Live decisions (target vs actual peak concurrency in each decision's
+    window): 7 of 29 under-provisioned (shortfalls 9, 8, 6, 5, 1, 1, 1), 1 exact,
+    mean excess 2.07 environments; peak-forecast MAPE 11.3% (worst 33.3%)
+  - Calibration out of sample (run-1 fit applied to all 94 minutes): residual
+    mean +1.51, 26.6% of minutes above the headroom (designed for 5%), R^2 0.76;
+    even a perfect forecast would leave 16 of 94 minutes under-provisioned
+- Notes / anomalies:
+  - First decision at 08:54, minute 64: the `--history-start` fix works live
+    (Known issue 10).
+  - The calibration error depends on load. Mean residual by request rate:
+    <= 150 req/s +0.14, 150-250 +0.54, 250-320 +2.34, > 320 +3.92 (max 10.3).
+    Run 1 only reached 320 req/s, so the fit is extrapolated at the new peaks,
+    and concurrency rises faster than linearly there. Billed duration also rose
+    (5.1 -> 5.9 ms mean). A refit on this run gives -0.48 + 0.0587 x req/s,
+    headroom 3.82 (R^2 0.88). Known issue 7 stays open.
+  - The worst shortfalls (9, 8, 6) are at the 08:54-09:02 peak, above 320
+    req/s. The largest forecast errors (29-33%, 09:12-09:19) are over-forecasts
+    on a noise dip, so they cost money but not cold starts.
+  - Outputs: `results/rolling_forecast/seasonal_c2dry_ec2_run2_*` (Prophet,
+    seasonal naive, comparison), `results/controller/20261018-0750_*.csv`
+    (decision log, plus `_evaluation.csv` and `.png` from `evaluate_decisions.py`).
+- Figures:
+
+  ![Walk-forward Prophet forecast, EC2 seasonal run 2 with realism](../results/rolling_forecast/seasonal_c2dry_ec2_run2_forecast.png)
+
+  *Same layout as Run 2026-10-10-1, on this run (noise 10%, drift 20%).*
+  - What it shows: the traffic is now irregular minute to minute and each peak
+    is higher than the last (drift). Prophet follows the cycle but cannot
+    predict the random minute-to-minute noise, so error is about 8%. The
+    actual line stays inside the band (92% coverage).
+
+  ![Prophet vs seasonal naive, EC2 run 2](../results/rolling_forecast/seasonal_c2dry_ec2_run2_comparison.png)
+
+  *Mean absolute error by horizon, Prophet vs seasonal naive.*
+  - What it shows: with realistic traffic Prophet is better at every horizon
+    (21% less error overall). This reverses the EC2 run 1 result and matches
+    the simulation (Run 2026-10-18-3).
+
+  ![Calibration out of sample and live decisions, EC2 run 2](../results/controller/20261018-0750_seasonal_c2_dryrun_evaluation.png)
+
+  *(a) The run-1 calibration (line and dashed headroom) applied to this run
+  (blue) and to the run it was fitted on (grey); dotted line = highest load in
+  the calibration run. (b) The controller's target for each minute against the
+  peak concurrency that arrived; orange dots = under-provisioned minutes.
+  Produced by `src/evaluation/evaluate_decisions.py`.*
+  - How to read it: in (a), blue points above the dashed line are minutes the
+    rule would have under-provisioned even with a perfect forecast.
+  - What it shows: below about 250 req/s the blue points fall on the grey ones,
+    so the calibration transfers. Beyond the fitted range (right of the dotted
+    line) they rise well above it. In (b) most shortfalls are at the 08:56-09:00
+    peak (above 320 req/s) and at a single burst at 09:04. The target tracks
+    the shape well; the error comes from the conversion rule, not the forecast.
+- Next step: decide how to calibrate across the full load range (pool runs 1
+  and 2 and test on a third, or add a non-linear term), fix the start protocol
+  (Known issue 12), then the first `--apply` run.

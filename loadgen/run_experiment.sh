@@ -46,6 +46,12 @@ COMMIT="$(git rev-parse --short HEAD)"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "WARNING: uncommitted changes; the run will not match commit $COMMIT exactly."
 fi
+# A failed git pull once left a run on stale code (Run 2026-10-18-4)
+if ! git fetch -q origin main 2>/dev/null; then
+  echo "WARNING: could not reach origin; cannot check that $COMMIT is the latest commit."
+elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  echo "HEAD ($COMMIT) is not origin/main ($(git rev-parse --short origin/main)). Run git pull first."; exit 1
+fi
 if tmux has-session 2>/dev/null; then
   echo "A tmux session is already running (tmux ls). Finish or kill it first."; exit 1
 fi

@@ -13,6 +13,8 @@ capacity:
   # Forecast -> Provisioned Concurrency conversion (src/controller/capacity_model.py),
   # fitted by src/evaluation/calibrate_capacity.py from a warm-up run's CloudWatch data.
   calibration_quantile: 0.95   # headroom = this residual quantile, so the fit covers ~95% of observed minutes
+  headroom_mode: "multiplicative"  # margin proportional to the fit (scatter grows with load), or "additive";
+                                   # chosen by src/evaluation/compare_capacity_models.py (Run 2026-10-29-1)
 
 controller:
   # Live loop timing (src/controller/live_controller.py). A decision made now is
@@ -21,9 +23,9 @@ controller:
   cloudwatch_delay_minutes: 3      # Lambda metrics publish late; newer minutes are incomplete
   pc_ready_minutes: 2              # measured PC scale-up lag 84 s (Run 2026-09-28-2), rounded up
   max_provisioned_concurrency: 40  # cost/safety cap (~$0.07/h at 40 x 128 MB)
-  # EC2-client calibration (Run 2026-10-16-2); the laptop one (seasonal_train_run1.json)
-  # over-provisioned by ~8 environments because concurrency is lower from EC2
-  calibration_file: "results/capacity_calibration/seasonal_c2dry_ec2_run1.json"
+  # Pooled EC2 calibration, runs 1 + 2, 80-400 req/s, multiplicative margin (Run 2026-10-29-1).
+  # Was seasonal_c2dry_ec2_run1.json (fitted only up to 320 req/s; under-provisioned above it)
+  calibration_file: "results/capacity_calibration/ec2_pooled_run1_run2.json"
 
 forecasting:
   lead_time_minutes: 10         # how far ahead Prophet forecasts before a scaling action

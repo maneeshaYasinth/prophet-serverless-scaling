@@ -62,8 +62,8 @@ def plot(fit_df, run_df, model, scored, out_path):
     xs = np.linspace(0, rate.max(), 50)
     fit = model.intercept + model.slope_per_rps * xs
     ax1.plot(xs, fit, color=INK_SECONDARY, linewidth=2, label="Calibrated fit")
-    ax1.plot(xs, fit + model.headroom, color=FORECAST_COLOR, linewidth=2, linestyle="--",
-             label=f"Fit + headroom ({model.headroom:.1f})")
+    ax1.plot(xs, model.provisioned(xs), color=FORECAST_COLOR, linewidth=2, linestyle="--",
+             label=model.margin_label())
     if fit_df is not None:
         ax1.axvline(fit_df.y.max() / model.interval_seconds, color=INK_SECONDARY, linewidth=1, linestyle=":")
         ax1.annotate("edge of fitted range", (fit_df.y.max() / model.interval_seconds, ax1.get_ylim()[1]),
@@ -112,12 +112,13 @@ def main():
     run_df = pd.read_csv(args.cloudwatch, parse_dates=["ds"])
     scored = score_decisions(log, run_df)
 
-    residuals = run_df.concurrency - (model.intercept + model.slope_per_rps * run_df.y / model.interval_seconds)
+    rate = run_df.y / model.interval_seconds
+    residuals = run_df.concurrency - (model.intercept + model.slope_per_rps * rate)
     print(f"{len(scored)} scored decisions: {(scored.gap < 0).sum()} under-provisioned "
           f"(shortfalls {sorted(scored.gap[scored.gap < 0].astype(int).tolist())}), "
           f"mean excess {scored.gap.clip(lower=0).mean():.2f}")
     print(f"calibration on this run: residual mean {residuals.mean():+.2f}, "
-          f"{(residuals > model.headroom).mean() * 100:.1f}% of minutes above the headroom")
+          f"{(run_df.concurrency > model.provisioned(rate)).mean() * 100:.1f}% of minutes above the margin")
 
     out = Path(args.log).with_name(Path(args.log).stem + "_evaluation")
     scored.to_csv(out.with_suffix(".csv"), index=False)

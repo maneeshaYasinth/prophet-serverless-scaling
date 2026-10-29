@@ -1,0 +1,102 @@
+{
+  "intercept": 0.16527092001690014,
+  "slope_per_rps": 0.05288309474609768,
+  "headroom": 0.0,
+  "buffer_percent": 0,
+  "interval_seconds": 60,
+  "min_concurrency": 1,
+  "max_concurrency": null,
+  "headroom_mode": "multiplicative",
+  "headroom_factor": 1.2604009065303294,
+  "sources": [
+    "data/processed/seasonal_c2dry_ec2_run1.csv",
+    "data/processed/seasonal_c2dry_ec2_run2.csv"
+  ],
+  "load_range_rps": [
+    80.0,
+    400.0
+  ],
+  "r_squared": 0.858,
+  "calibration_quantile": 0.95,
+  "comparison": [
+    {
+      "mode": "additive",
+      "split": "test seasonal_c2dry_ec2_run1",
+      "out_of_sample": true,
+      "minutes": 94,
+      "under_provisioned_minutes": 0,
+      "under_provisioned_pct": 0.0,
+      "mean_shortfall_when_under": 0.0,
+      "provisioned_env_minutes": 1488,
+      "excess_env_minutes": 528,
+      "excess_pct_of_actual": 55.0,
+      "worst_shortfall": 0
+    },
+    {
+      "mode": "additive",
+      "split": "test seasonal_c2dry_ec2_run2",
+      "out_of_sample": true,
+      "minutes": 94,
+      "under_provisioned_minutes": 16,
+      "under_provisioned_pct": 17.0,
+      "mean_shortfall_when_under": 3.81,
+      "provisioned_env_minutes": 1279,
+      "excess_env_minutes": 156,
+      "excess_pct_of_actual": 13.2,
+      "worst_shortfall": 8
+    },
+    {
+      "mode": "additive",
+      "split": "pooled",
+      "out_of_sample": false,
+      "minutes": 188,
+      "under_provisioned_minutes": 9,
+      "under_provisioned_pct": 4.8,
+      "mean_shortfall_when_under": 2.67,
+      "provisioned_env_minutes": 2804,
+      "excess_env_minutes": 684,
+      "excess_pct_of_actual": 31.9,
+      "worst_shortfall": 5
+    },
+    {
+      "mode": "multiplicative",
+      "split": "test seasonal_c2dry_ec2_run1",
+      "out_of_sample": true,
+      "minutes": 94,
+      "under_provisioned_minutes": 0,
+      "under_provisioned_pct": 0.0,
+      "mean_shortfall_when_under": 0.0,
+      "provisioned_env_minutes": 1404,
+      "excess_env_minutes": 444,
+      "excess_pct_of_actual": 46.2,
+      "worst_shortfall": 0
+    },
+    {
+      "mode": "multiplicative",
+      "split": "test seasonal_c2dry_ec2_run2",
+      "out_of_sample": true,
+      "minutes": 94,
+      "under_provisioned_minutes": 17,
+      "under_provisioned_pct": 18.1,
+      "mean_shortfall_when_under": 3.29,
+      "provisioned_env_minutes": 1250,
+      "excess_env_minutes": 122,
+      "excess_pct_of_actual": 10.3,
+      "worst_shortfall": 8
+    },
+    {
+      "mode": "multiplicative",
+      "split": "pooled",
+      "out_of_sample": false,
+      "minutes": 188,
+      "under_provisioned_minutes": 4,
+      "under_provisioned_pct": 2.1,
+      "mean_shortfall_when_under": 2.5,
+      "provisioned_env_minutes": 2796,
+      "excess_env_minutes": 662,
+      "excess_pct_of_actual": 30.9,
+      "worst_shortfall": 5
+    }
+  ],
+  "note": "pooled fit; comparison scores each margin with a perfect forecast"
+}

@@ -51,8 +51,8 @@ def plot(df, model, replay, out_path):
     ax1.scatter(rate, df.concurrency, s=22, color=ACTUAL_COLOR, edgecolor="white", linewidth=0.8,
                 label="Observed minute", zorder=3)
     ax1.plot(xs, fit, color=INK_SECONDARY, linewidth=2, label="Least-squares fit")
-    ax1.plot(xs, fit + model.headroom, color=FORECAST_COLOR, linewidth=2, linestyle="--",
-             label=f"Fit + headroom ({model.headroom:.1f})")
+    ax1.plot(xs, model.provisioned(xs), color=FORECAST_COLOR, linewidth=2, linestyle="--",
+             label=model.margin_label())
     ax1.set_xlabel("Request rate (requests per second)")
     ax1.set_ylabel("Peak concurrent executions per minute")
     ax1.set_title("(a) Concurrency vs request rate", loc="left", fontsize=11)
@@ -86,7 +86,8 @@ def main():
     name = Path(args.data).stem
 
     model = CapacityModel.fit(df, quantile=cfg["capacity"]["calibration_quantile"],
-                              buffer_percent=cfg["aws"]["pc_buffer_percent"])
+                              buffer_percent=cfg["aws"]["pc_buffer_percent"],
+                              headroom_mode=cfg["capacity"]["headroom_mode"])
     rate = df.y / model.interval_seconds
     residuals = df.concurrency - (model.intercept + model.slope_per_rps * rate)
     r2 = 1 - residuals.var() / df.concurrency.var()
@@ -110,7 +111,7 @@ def main():
     plot(df, model, replay, RESULTS_DIR / f"{name}_calibration.png")
 
     print(f"concurrency = {model.intercept:.2f} + {model.slope_per_rps:.4f} x rps   "
-          f"(R^2 {r2:.3f}, headroom {model.headroom:.2f}, buffer {model.buffer_percent:.0f}%)")
+          f"(R^2 {r2:.3f}, margin: {model.margin_label()}, buffer {model.buffer_percent:.0f}%)")
     print(pd.DataFrame.from_dict(stats, orient="index").to_string())  # per-column dtypes keep counts as ints
     print(f"Saved to {RESULTS_DIR}/{name}*")
 

@@ -37,7 +37,7 @@ resolved; details are in the run entries named.
 | 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
 | 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
 | 6 | `cold_start` flag counts environment inits, not user-visible cold starts (proactive initialisation hides most) | 2026-10-06-1 | Open. Decide the metric: report both, with a latency threshold (e.g. > 1 s) for user-visible |
-| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Open, now tested out of sample (2026-10-18-5): the EC2 fit transfers below about 250 req/s but under-predicts above its fitted range (up to 10 environments at 400 req/s). Calibrate on data covering the full load range; evaluate on a held-out run |
+| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Partly mitigated (2026-10-29-1): pooled fit on EC2 runs 1 + 2 (80-400 req/s) with a multiplicative margin; leave-one-run-out shows no margin fixes extrapolation, so the calibration data must cover the experiment's load range. Still to check on a third, held-out run |
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute; confirmed live in 2026-10-18-5 (first decision at minute 64) |
@@ -747,3 +747,72 @@ resolved; details are in the run entries named.
 - Next step: decide how to calibrate across the full load range (pool runs 1
   and 2 and test on a third, or add a non-linear term), fix the start protocol
   (Known issue 12), then the first `--apply` run.
+
+### Run: 2026-10-29-1
+- Condition: capacity-model comparison (offline; no AWS calls)
+- Traffic pattern: seasonal
+- Data source: `data/processed/seasonal_c2dry_ec2_run1.csv` (2026-10-16-2, 80-320 req/s)
+  and `seasonal_c2dry_ec2_run2.csv` (2026-10-18-5, 80-400 req/s), 94 minutes each
+- Configuration: `src/evaluation/compare_capacity_models.py`; linear fit of peak
+  concurrency on request rate, margin at the 95th percentile, scored with a perfect
+  forecast (each minute's actual rate) so only the capacity model is judged
+  - additive: fit + residual quantile (the model used so far)
+  - multiplicative: fit x quantile of actual / fitted (new `capacity.headroom_mode`)
+  - leave-one-run-out (fit on one run, test on the other) and pooled (in-sample)
+- Results:
+
+  | Margin | Split | Under-provisioned minutes | Worst shortfall | Excess env-minutes (% of actual) |
+  |---|---|---|---|---|
+  | Additive | held out run 1 | 0 / 94 (0%) | 0 | 528 (55.0%) |
+  | Additive | held out run 2 | 16 / 94 (17.0%) | 8 | 156 (13.2%) |
+  | Additive | pooled | 9 / 188 (4.8%) | 5 | 684 (31.9%) |
+  | Multiplicative | held out run 1 | 0 / 94 (0%) | 0 | 444 (46.2%) |
+  | Multiplicative | held out run 2 | 17 / 94 (18.1%) | 8 | 122 (10.3%) |
+  | Multiplicative | pooled | 4 / 188 (2.1%) | 5 | 662 (30.9%) |
+
+  - Chosen: pooled multiplicative, concurrency = 0.17 + 0.0529 x req/s, x 1.26
+    (R^2 0.858, 80-400 req/s); `controller.calibration_file` now points at
+    `results/capacity_calibration/ec2_pooled_run1_run2.json`
+  - Controller replay on run 2 (Prophet `yhat`, C2): under-provisioned decisions
+    10/28 with the run-1 calibration -> 5/28 with the pooled one; mean excess
+    1.2 -> 2.5 environments. On run 1: 0/28, mean excess 3.7. Both in-sample for
+    the pooled fit.
+- Notes / anomalies:
+  - The two runs agree below about 250 req/s (mean concurrency per 50 req/s band
+    within 0.5). At 250-350 req/s run 2 needs about 3 more environments than run 1
+    at the same rate.
+  - Request rate explains about 86% of concurrency. Billed duration adds nothing
+    (correlation with the residual 0.01); the minute-to-minute change in rate adds a
+    little (R^2 0.859 -> 0.868; run 2 changes about 34 req/s per minute vs 13 in
+    run 1, from the 10% noise). Effective occupancy is about 52-57 ms per request
+    (concurrency / rate), against about 5 ms billed.
+  - The scatter grows with load (residual standard deviation 0.67 below 150 req/s,
+    3.09 above 320), which is why a margin proportional to the fit suits it better
+    than a constant one: fewer under-provisioned minutes pooled (2.1% vs 4.8%) and
+    less spare capacity in every split.
+  - Extrapolation is not fixed by either margin, nor by a quadratic fit (tested:
+    17/94 when fitted on run 1 and tested on run 2, because run 1 has no curvature
+    to learn). Rule adopted: the calibration data must cover the load range of the
+    experiment it is used for. Seasonal runs peak at about 400 req/s; the spiky
+    pattern (about 1,000 req/s) will need its own calibration coverage.
+  - Outputs: `results/capacity_calibration/ec2_pooled_run1_run2.json`,
+    `_comparison.csv`, `_comparison.png`; replay logs
+    `results/controller/replay_pooled_run{1,2}.csv`.
+- Figure:
+
+  ![Capacity margin comparison, EC2 runs 1 and 2](../results/capacity_calibration/ec2_pooled_run1_run2_comparison.png)
+
+  *(a) Peak concurrency per minute against request rate for both EC2 runs, with the
+  pooled fit plus an additive margin (dashed) and a multiplicative margin (solid).
+  (b) Share of minutes under-provisioned, and (c) spare capacity as a share of
+  actual environment-minutes, for each margin when one run is held out and when
+  both are pooled, scored with a perfect forecast.*
+  - How to read it: in (b) lower is fewer cold-start minutes; the dotted line is the
+    5% the 95th-percentile margin is designed for. In (c) lower is cheaper.
+  - What it shows: the multiplicative margin sits lower at low load and higher at
+    high load, following the widening scatter. It is cheaper in every split and
+    halves under-provisioning when pooled. Holding out run 2 fails for both
+    margins (17-18%), because run 1 never reached run 2's peak: the fix is
+    calibration data that covers the load range, not a different margin.
+- Next step: fix the start protocol (Known issue 12); use the next seasonal run as
+  the held-out test of this calibration; then the first `--apply` run.

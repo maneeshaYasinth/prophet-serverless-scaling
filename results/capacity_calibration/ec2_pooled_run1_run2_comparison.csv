@@ -1,0 +1,7 @@
+mode,split,out_of_sample,minutes,under_provisioned_minutes,under_provisioned_pct,mean_shortfall_when_under,provisioned_env_minutes,excess_env_minutes,excess_pct_of_actual,worst_shortfall
+additive,test seasonal_c2dry_ec2_run1,True,94,0,0.0,0.0,1488,528,55.0,0
+additive,test seasonal_c2dry_ec2_run2,True,94,16,17.0,3.81,1279,156,13.2,8
+additive,pooled,False,188,9,4.8,2.67,2804,684,31.9,5
+multiplicative,test seasonal_c2dry_ec2_run1,True,94,0,0.0,0.0,1404,444,46.2,0
+multiplicative,test seasonal_c2dry_ec2_run2,True,94,17,18.1,3.29,1250,122,10.3,8
+multiplicative,pooled,False,188,4,2.1,2.5,2796,662,30.9,5

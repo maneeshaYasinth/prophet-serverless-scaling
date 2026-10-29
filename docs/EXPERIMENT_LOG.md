@@ -37,7 +37,7 @@ resolved; details are in the run entries named.
 | 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
 | 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
 | 6 | `cold_start` flag counts environment inits, not user-visible cold starts (proactive initialisation hides most) | 2026-10-06-1 | Open. Decide the metric: report both, with a latency threshold (e.g. > 1 s) for user-visible |
-| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Partly mitigated (2026-10-29-1): pooled fit on EC2 runs 1 + 2 (80-400 req/s) with a multiplicative margin; leave-one-run-out shows no margin fixes extrapolation, so the calibration data must cover the experiment's load range. Still to check on a third, held-out run |
+| 7 | Capacity calibration evaluated in-sample, on a falling segment only | 2026-10-10-2 | Partly mitigated (2026-10-29-1): pooled fit on EC2 runs 1 + 2 (80-400 req/s) with a multiplicative margin; leave-one-run-out shows no margin fixes extrapolation, so the calibration data must cover the experiment's load range. Held-out run 3 (2026-10-29-5): live decisions 0/29 under (old calibration 6/29) at +17% env-minutes, but concurrency per req/s drifts upward between sessions (17% of minutes above the margin). Candidate fix: recalibrate online from the live 60-minute window |
 | 8 | `concurrency` as a Layer 1 regressor leaks future data unless lagged | 2026-10-06-1 | Open. Use lagged concurrency only |
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute; confirmed live in 2026-10-18-5 (first decision at minute 64) |
@@ -816,3 +816,98 @@ resolved; details are in the run entries named.
     calibration data that covers the load range, not a different margin.
 - Next step: fix the start protocol (Known issue 12); use the next seasonal run as
   the held-out test of this calibration; then the first `--apply` run.
+
+### Run: 2026-10-29-2 (ABORTED: instance stopped mid-run)
+- Condition: vanilla-prophet, live dry run (intended as the held-out test of the
+  pooled calibration from 2026-10-29-1)
+- Traffic pattern: seasonal, `SEED=7` (new noise, same load range), 95 min planned
+- Data source: EC2 load generator, run `20261029-1544_seasonal_c2_dryrun`
+- Duration / sample size: about 3.5 min (15:44-15:47:34 UTC), first minute 12,043
+  requests and 0 errors; nothing uploaded
+- Results: none
+- Notes / anomalies:
+  - `git pull` on the instance failed again (two untracked controller CSVs from
+    2026-10-18 now tracked in the repo), so the run started on commit `d71b1e0`,
+    which predates the stale-code check in `run_experiment.sh` (Known issue 13).
+  - `loadgen/session.sh stop` was run from the laptop straight after the start,
+    which stopped the instance and killed the run. `results` and `stop` are for
+    after the run has finished.
+- Next step: move the two CSVs aside on the instance, pull to `f6ce563`, rerun with
+  `SEED=7`, and leave the instance running until the run uploads to S3.
+
+### Run: 2026-10-29-3 (ABORTED: instance stopped mid-run)
+- Condition: vanilla-prophet, live dry run (held-out test, second attempt)
+- Traffic pattern: seasonal, `SEED=7`
+- Data source: EC2 load generator, run `20261029-1553_seasonal_c2_dryrun`, commit
+  `f6ce563` (pull succeeded after moving the two CSVs aside)
+- Duration / sample size: about 3 min (15:53 UTC until the instance stopped);
+  first minute 12,428 requests, 0 errors; nothing uploaded
+- Results: none
+- Notes / anomalies: `loadgen/session.sh stop` was again run straight after the
+  start (interrupted with Ctrl-C, but the stop request had already been sent).
+  The next attempt (`20261029-1558_seasonal_c2_dryrun`) was started after the
+  instance came back up. Its start banner warned of uncommitted changes: the `mv`
+  was repeated after the pull, which deleted two tracked output CSVs from the
+  instance's working tree. Code and config were unchanged, so the run still
+  matches `f6ce563`.
+
+### Run: 2026-10-29-4 (ABORTED: stopped by hand)
+- Condition: vanilla-prophet, live dry run (held-out test, third attempt)
+- Traffic pattern: seasonal, `SEED=7`
+- Data source: EC2 load generator, run `20261029-1558_seasonal_c2_dryrun`, commit `f6ce563`
+- Duration / sample size: about 4 min (15:58-16:02 UTC); traffic normal (9,994-17,595
+  invocations per minute in CloudWatch); nothing uploaded
+- Results: none
+- Notes / anomalies: stopped by hand after a misunderstanding about the run length
+  (95 min is required: about 63 min of warm-up before the first decision, then about
+  30 decisions). The instance stayed running.
+
+### Run: 2026-10-29-5
+- Condition: vanilla-prophet, live dry run (decisions computed, Provisioned
+  Concurrency never changed); held-out test of the pooled multiplicative
+  calibration from 2026-10-29-1
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=7`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `DRIFT_PCT=20`): same shape and load range as runs 1-2, new noise
+- Data source: EC2 load generator (c7i-flex.large, commit `f6ce563`), run
+  `20261029-1604_seasonal_c2_dryrun`; CloudWatch export
+  `data/raw/seasonal_c2dry_ec2_run3.csv`, trimmed to 16:05-17:38 UTC in `data/processed/`
+- Duration / sample size: 95 min, 16:04:29-17:39 UTC, 1,275,906 requests, 0
+  failures; 29 scored decisions (17:10-17:38)
+- Results:
+  - P95 latency: 45.1 ms (P50 26.2, P99.9 67.1, max 3,175 ms)
+  - P99 latency: 47.5 ms
+  - Cold start count: 65 inits, all mid-run; 18 user-visible (> 1 s); 40 returned
+    in under 100 ms. No start-up cold starts: the aborted attempts minutes earlier
+    (2026-10-29-2 to -4) had left the function warm (Known issue 12)
+  - Cost per request: about $2.1e-7 (billed mean 6.5 ms, 128 MB)
+  - Load range: 85-366 req/s, concurrency 5-37
+  - Live decisions with the pooled calibration, against the old run-1 calibration
+    applied to the same forecasts (`yhat_max` from the decision log):
+
+    | Calibration | Under-provisioned decisions | Shortfalls | Mean excess | Env-minutes |
+    |---|---|---|---|---|
+    | Run 1, additive (old) | 6 / 29 | 1, 1, 2, 2, 4, 5 | 1.93 | 427 |
+    | Pooled, multiplicative (new) | 0 / 29 | none | 3.86 | 498 (+17%) |
+
+  - Perfect-forecast check over all 94 minutes: under-provisioned 16/94 (17.0%) with
+    the new calibration, 37/94 (39.4%) with the old; excess 11.5% vs 6.6% of
+    actual env-minutes. Residual mean +2.63; 26.6% of minutes above the margin
+    (designed for 5%)
+- Notes / anomalies:
+  - Concurrency per request rate rose again from session to session. Mean peak
+    concurrency per load band (runs 1 / 2 / 3): up to 150 req/s 5.9 / 6.3 / 7.0;
+    150-250 10.5 / 10.9 / 12.3; 250-320 14.0 / 16.1 / 19.2; above 320 n/a / 20.6 / 24.3.
+    A calibration fitted on earlier sessions therefore drifts.
+  - The outlier minutes coincide with bursts of cold starts: 16:35 (27
+    environments, 15 cold starts), 16:40 (30, 3), 16:46 (34, 3), 17:06 (27, 9),
+    17:08 (37, 1). A cold start holds an environment for about 3 s instead of about
+    50 ms, so requests arriving meanwhile need further new environments: the
+    concurrency spike is partly caused by the cold starts themselves. Under
+    Provisioned Concurrency these minutes should be smaller, so a calibration
+    measured under reactive scaling is conservative at those minutes.
+  - The 0/29 result is real but favoured by timing: decisions start after the
+    63-minute warm-up, and four of the five outlier minutes fell before 17:10.
+  - Figure: `results/controller/20261029-1604_seasonal_c2_dryrun_evaluation.png`.
+- Next step: discuss online recalibration (refit the capacity line every minute on
+  the same 60-minute window Prophet uses, so session drift is absorbed); fix the
+  start protocol (Known issue 12); then the first `--apply` run.

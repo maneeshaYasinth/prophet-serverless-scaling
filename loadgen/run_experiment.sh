@@ -62,10 +62,30 @@ if [ -n "$pc" ]; then
   echo "$pc"; exit 1
 fi
 
+# --- Start protocol: a fresh version, so no environment is warm ---------------------
+# Environments belong to a version. Earlier traffic left them warm (0 start-up cold
+# starts in Runs 2026-10-18-5 and 2026-10-29-5 against 20 in 2026-10-16-2), so the
+# alias is moved to a newly published version and every run starts cold.
+# Lambda publishes nothing new while $LATEST is unchanged, hence the description.
+ALIAS="prod"
+echo "Start protocol: publishing a fresh version of $FUNCTION ..."
+aws lambda update-function-configuration --function-name "$FUNCTION" \
+  --description "start protocol: $RUN" --output text --query LastUpdateStatus >/dev/null
+aws lambda wait function-updated --function-name "$FUNCTION"
+LAMBDA_VERSION="$(aws lambda publish-version --function-name "$FUNCTION" \
+  --description "$RUN" --query Version --output text)"
+aws lambda wait published-version-active --function-name "$FUNCTION" --qualifier "$LAMBDA_VERSION"
+aws lambda update-alias --function-name "$FUNCTION" --name "$ALIAS" \
+  --function-version "$LAMBDA_VERSION" --output text --query FunctionVersion >/dev/null
+[ "$(aws lambda get-alias --function-name "$FUNCTION" --name "$ALIAS" --query FunctionVersion --output text)" \
+  = "$LAMBDA_VERSION" ] || { echo "Alias $ALIAS did not move to version $LAMBDA_VERSION"; exit 1; }
+echo "Alias $ALIAS -> version $LAMBDA_VERSION (no warm environments)."
+
 mkdir -p data/raw results/controller
 cat > "data/raw/$RUN.meta.json" <<EOF
 {"run": "$RUN", "pattern": "$PATTERN", "condition": "$CONDITION", "mode": "$MODE",
  "minutes": $MINUTES, "user_rps": $USER_RPS, "seed": $SEED, "commit": "$COMMIT",
+ "lambda_version": "$LAMBDA_VERSION", "start_state": "fresh version (cold)",
  "noise_pct": $NOISE_PCT, "noise_interval_s": $NOISE_INTERVAL_S, "drift_pct": $DRIFT_PCT,
  "instance_type": "$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-type)",
  "started_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "history_start_utc": "$HISTORY_START"}

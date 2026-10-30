@@ -101,6 +101,20 @@ resource "aws_iam_role_policy" "experiment" {
         Resource = [local.function_arn, local.alias_arn]
       },
       {
+        # Start protocol: run_experiment.sh publishes a fresh version and points the
+        # alias at it, so every run starts with no warm environments (Known issue 12)
+        Sid    = "StartProtocolFreshVersion"
+        Effect = "Allow"
+        Action = [
+          "lambda:GetFunctionConfiguration",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:PublishVersion",
+          "lambda:GetAlias",
+          "lambda:UpdateAlias",
+        ]
+        Resource = [local.function_arn, local.alias_arn]
+      },
+      {
         Sid      = "ReadMetrics" # GetMetricData has no resource-level permissions
         Effect   = "Allow"
         Action   = "cloudwatch:GetMetricData"
@@ -163,6 +177,8 @@ resource "aws_instance" "loadgen" {
   tags = { Name = local.name }
 
   lifecycle {
-    ignore_changes = [ami] # a newer AL2023 AMI must not replace the instance mid-experiment
+    # A newer AL2023 AMI must not replace the instance mid-experiment, and a stopped
+    # instance reads back with no public IP, which would otherwise force a replacement
+    ignore_changes = [ami, associate_public_ip_address]
   }
 }

@@ -62,13 +62,25 @@ resource "aws_lambda_function" "sandbox" {
       SIMULATED_INIT_DELAY_SECONDS = var.simulated_init_delay_seconds
     }
   }
+
+  # loadgen/run_experiment.sh sets the description to the run name before
+  # publishing a fresh version (start protocol); Terraform leaves it alone.
+  lifecycle {
+    ignore_changes = [description]
+  }
 }
 
 # Alias so PC has a stable qualifier to attach to even as new versions publish.
+# run_experiment.sh moves it to a freshly published version before every run, so
+# Terraform only sets the version on create and does not move it back.
 resource "aws_lambda_alias" "prod" {
   name             = var.alias_name
   function_name    = aws_lambda_function.sandbox.function_name
   function_version = aws_lambda_function.sandbox.version
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
 }
 
 # Public Function URL so Locust can hit this directly with no API Gateway

@@ -112,7 +112,8 @@ resource "aws_iam_role_policy" "experiment" {
           "lambda:GetAlias",
           "lambda:UpdateAlias",
         ]
-        Resource = [local.function_arn, local.alias_arn]
+        # :* covers the numbered version the published-version-active waiter checks
+        Resource = [local.function_arn, "${local.function_arn}:*"]
       },
       {
         Sid      = "ReadMetrics" # GetMetricData has no resource-level permissions

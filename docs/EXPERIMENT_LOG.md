@@ -42,7 +42,7 @@ resolved; details are in the run entries named.
 | 9 | `TrafficPatternShape` spikes can overlap and merge at high `SPIKES_PER_HOUR` | 2026-10-04-1 | Open. Document in the method or enforce non-overlapping spikes |
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute; confirmed live in 2026-10-18-5 (first decision at minute 64) |
 | 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated: seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); Prophet skill over seasonal naive +0.22 in simulation (2026-10-18-3) and +0.21 live (2026-10-18-5). Real Azure Functions trace planned before the thesis |
-| 12 | Start state not controlled: a run started minutes after earlier traffic finds environments already warm, so it has no start-up cold starts (0 in 2026-10-18-5 vs 20 in 2026-10-16-2) | 2026-10-18-5 | Fix written, not yet validated (2026-10-30): `run_experiment.sh` publishes a fresh Lambda version and moves alias `prod` to it before every run, so no environment is warm; the version is recorded in each meta file (`lambda_version`, `start_state`). Needs the loadgen IAM change applied, then a run showing about 20 start-up cold starts. Seen again in 2026-10-29-5 |
+| 12 | Start state not controlled: a run started minutes after earlier traffic finds environments already warm, so it has no start-up cold starts (0 in 2026-10-18-5 vs 20 in 2026-10-16-2) | 2026-10-18-5 | Fixed (2026-10-30-1): `run_experiment.sh` publishes a fresh Lambda version and moves alias `prod` to it before every run, so no environment is warm; the version is recorded in each meta file (`lambda_version`, `start_state`). Validation run: 23 cold starts, all in the first 10 s, none after. Seen again in 2026-10-29-5 |
 | 13 | A run started on stale code after `git pull` failed on the instance | 2026-10-18-4 | Resolved: `run_experiment.sh` refuses to start unless HEAD equals `origin/main` |
 
 ## Runs
@@ -911,3 +911,35 @@ resolved; details are in the run entries named.
 - Next step: discuss online recalibration (refit the capacity line every minute on
   the same 60-minute window Prophet uses, so session drift is absorbed); fix the
   start protocol (Known issue 12); then the first `--apply` run.
+
+### Run: 2026-10-30-1
+- Condition: reactive baseline (C1), traffic only; validation of the start protocol
+  (Known issue 12), not one of the nine scenarios
+- Traffic pattern: steady (`TrafficPatternShape`, `SEED=42`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `DRIFT_PCT=20`)
+- Data source: EC2 load generator (c7i-flex.large, commit `349c334`), run
+  `20261030-1756_steady_c1_traffic`; alias `prod` moved to freshly published
+  version 12 before the run (`lambda_version: "12"`, `start_state: "fresh version
+  (cold)"` in the meta file)
+- Duration / sample size: 5 min, 17:56:34-18:01:31 UTC, 65,668 requests (about 221
+  req/s), 0 failures
+- Results:
+  - P95 latency: 45.1 ms (P50 26.7, P99.9 72.8, max 3,621 ms)
+  - P99 latency: 47.5 ms
+  - Cold start count: 23, all within the first 10 s of the run, none afterwards;
+    each 3.3-3.6 s (the simulated 3 s init)
+  - Cost per request: about $2.2e-7 (billed mean 8.1 ms, 128 MB)
+- Notes / anomalies:
+  - The start protocol works: every run now starts from no warm environments,
+    regardless of earlier traffic (compare 0 start-up cold starts in 2026-10-18-5
+    and 2026-10-29-5).
+  - Four earlier attempts (versions 8-11) failed in the `published-version-active`
+    waiter with AccessDenied on `lambda:GetFunctionConfiguration` for the
+    version-qualified ARN: the IAM statement first listed only the function and
+    `:prod`. Fixed by allowing `function:sandbox-lambda:*` (commit `349c334`); the
+    last failure came about 30 s after the apply, before IAM had propagated.
+    Versions 8-11 were published but never received traffic.
+  - The instance's `git pull` was again blocked by an untracked controller CSV that
+    had since been committed from the laptop (moved to `~/stash`).
+- Next step: online recalibration of the capacity model, then the first `--apply` run.
+

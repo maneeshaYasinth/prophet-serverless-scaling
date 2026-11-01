@@ -161,6 +161,7 @@ def run_live(args, cfg, capacity_model, field, log):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGHUP, stop)  # tmux kill-session or the instance shutting down
     try:
         while time.time() < deadline:
             wall = datetime.now(timezone.utc).replace(second=0, microsecond=0)
@@ -195,11 +196,24 @@ def run_live(args, cfg, capacity_model, field, log):
         print("stopping...")
     finally:
         if args.apply:
-            try:
-                lam.delete_provisioned_concurrency_config(FunctionName=fn, Qualifier=alias)
-                print("Provisioned Concurrency config deleted.")
-            except lam.exceptions.ResourceNotFoundException:
-                print("No Provisioned Concurrency config to delete.")
+            delete_provisioned_concurrency(lam, fn, alias)
+
+
+def delete_provisioned_concurrency(lam, fn, alias, attempts=12, wait_s=10):
+    """Delete the PC config, retrying while an allocation is still IN_PROGRESS (ResourceConflict)."""
+    for _ in range(attempts):
+        try:
+            lam.delete_provisioned_concurrency_config(FunctionName=fn, Qualifier=alias)
+            print("Provisioned Concurrency config deleted.")
+            return
+        except (lam.exceptions.ResourceNotFoundException,
+                lam.exceptions.ProvisionedConcurrencyConfigNotFoundException):
+            print("No Provisioned Concurrency config to delete.")
+            return
+        except lam.exceptions.ResourceConflictException:
+            time.sleep(wait_s)
+    print(f"WARNING: could not delete Provisioned Concurrency on {fn}:{alias}; it is still billing. "
+          f"Run: aws lambda delete-provisioned-concurrency-config --function-name {fn} --qualifier {alias}")
 
 
 def main():

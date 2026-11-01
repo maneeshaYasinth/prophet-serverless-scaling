@@ -50,7 +50,16 @@ fi
 if ! git fetch -q origin main 2>/dev/null; then
   echo "WARNING: could not reach origin; cannot check that $COMMIT is the latest commit."
 elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-  echo "HEAD ($COMMIT) is not origin/main ($(git rev-parse --short origin/main)). Run git pull first."; exit 1
+  # Run outputs committed from the laptop clash with this instance's own untracked
+  # copies (already in S3) and block the pull; move those aside, then fast-forward
+  for f in $(git diff --name-only --diff-filter=A HEAD origin/main); do
+    if [ -e "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      mkdir -p "$HOME/stash" && mv "$f" "$HOME/stash/" && echo "Moved untracked $f to ~/stash"
+    fi
+  done
+  git merge -q --ff-only origin/main || { echo "Cannot fast-forward $COMMIT to origin/main; fix by hand."; exit 1; }
+  echo "Updated $COMMIT -> $(git rev-parse --short HEAD); restarting with the new code."
+  exec "$0" "$@"
 fi
 if tmux has-session 2>/dev/null; then
   echo "A tmux session is already running (tmux ls). Finish or kill it first."; exit 1

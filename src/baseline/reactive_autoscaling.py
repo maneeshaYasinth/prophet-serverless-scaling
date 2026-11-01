@@ -77,7 +77,9 @@ def summarize(log_path: Path, condition: str, pattern: str) -> ScenarioResult:
             if record["error"]:
                 continue
             response_times.append(record["response_time_ms"])
-            if record.get("cold_start"):
+            # A provisioned environment's first request is flagged cold but did not wait
+            # for init; logs from before init_type was recorded are all on-demand
+            if record.get("cold_start") and record.get("init_type") != "provisioned-concurrency":
                 cold_starts += 1
             if record.get("billed_duration_ms"):
                 billed_durations_ms.append(record["billed_duration_ms"])

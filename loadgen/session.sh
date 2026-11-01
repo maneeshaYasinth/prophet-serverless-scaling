@@ -5,7 +5,7 @@
 #   loadgen/session.sh connect   open a shell as ec2-user (instance already running)
 #   loadgen/session.sh status    instance state + any Provisioned Concurrency left allocated
 #   loadgen/session.sh results   download run outputs from S3 into data/raw and results/
-#   loadgen/session.sh stop      check PC is cleared, stop the instance, wait until stopped
+#   loadgen/session.sh stop      delete any PC left allocated, stop the instance, wait until stopped
 set -euo pipefail
 
 LOADGEN_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -64,9 +64,12 @@ case "${1:-}" in
   stop)
     configs="$(pc_configs)"
     if [ -n "$configs" ]; then
-      echo "WARNING: Provisioned Concurrency still allocated (it bills until deleted):"
+      # Stopping the instance ends any run, so nothing should stay billing (the
+      # controller deletes it itself unless it was killed before it could)
+      echo "Provisioned Concurrency still allocated; deleting it:"
       echo "$configs"
-      echo "Delete with: aws lambda delete-provisioned-concurrency-config --region $REGION --function-name $FUNCTION --qualifier prod"
+      aws lambda delete-provisioned-concurrency-config --region "$REGION" --function-name "$FUNCTION" --qualifier prod \
+        || echo "WARNING: delete failed (allocation in progress?). Retry: $0 status, then delete it by hand."
     fi
     aws ec2 stop-instances --region "$REGION" --instance-ids "$ID" >/dev/null
     echo "Stopping $ID ..."

@@ -61,6 +61,7 @@ class LambdaInvokeUser(User):
         start = time.perf_counter()
         exception = None
         cold_start = None
+        init_type = None
         billed_duration_ms = None
         response_length = 0
 
@@ -80,6 +81,7 @@ class LambdaInvokeUser(User):
             else:
                 body = json.loads(json.loads(raw_payload)["body"])
                 cold_start = body.get("cold_start")
+                init_type = body.get("init_type")
 
             log_result = response.get("LogResult")
             if log_result:
@@ -106,6 +108,7 @@ class LambdaInvokeUser(User):
                 "timestamp": time.time(),
                 "response_time_ms": response_time_ms,
                 "cold_start": cold_start,
+                "init_type": init_type,
                 "billed_duration_ms": billed_duration_ms,
                 "error": str(exception) if exception else None,
             }

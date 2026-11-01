@@ -22,6 +22,11 @@ if _INIT_DELAY_SECONDS > 0:
 # across invocations on the same warm container.
 _is_first_invocation = True
 
+# "on-demand" or "provisioned-concurrency" (set by Lambda). A provisioned
+# environment ran its init before any request arrived, so its first invocation
+# has cold_start true but no init delay; only on-demand ones are felt by users.
+_INIT_TYPE = os.environ.get("AWS_LAMBDA_INITIALIZATION_TYPE")
+
 
 def handler(event, context):
     global _is_first_invocation
@@ -35,6 +40,7 @@ def handler(event, context):
             {
                 "message": "sandbox-lambda ok",
                 "cold_start": was_cold_start,
+                "init_type": _INIT_TYPE,
                 "simulated_init_delay_seconds": _INIT_DELAY_SECONDS,
                 "request_id": getattr(context, "aws_request_id", None),
             }

@@ -43,7 +43,9 @@ resolved; details are in the run entries named.
 | 10 | Controller trained on data from before the run (an earlier session plus zero-filled gap inside the fetch lookback) | 2026-10-16-2 | Resolved: `--history-start`, set by `run_experiment.sh` to the run's first full minute; confirmed live in 2026-10-18-5 (first decision at minute 64) |
 | 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated: seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); Prophet skill over seasonal naive +0.22 in simulation (2026-10-18-3) and +0.21 live (2026-10-18-5). Real Azure Functions trace planned before the thesis |
 | 12 | Start state not controlled: a run started minutes after earlier traffic finds environments already warm, so it has no start-up cold starts (0 in 2026-10-18-5 vs 20 in 2026-10-16-2) | 2026-10-18-5 | Fixed (2026-10-30-1): `run_experiment.sh` publishes a fresh Lambda version and moves alias `prod` to it before every run, so no environment is warm; the version is recorded in each meta file (`lambda_version`, `start_state`). Validation run: 23 cold starts, all in the first 10 s, none after. Seen again in 2026-10-29-5 |
-| 13 | A run started on stale code after `git pull` failed on the instance | 2026-10-18-4 | Resolved: `run_experiment.sh` refuses to start unless HEAD equals `origin/main` |
+| 13 | A run started on stale code after `git pull` failed on the instance | 2026-10-18-4 | Resolved: `run_experiment.sh` refuses to start unless HEAD equals `origin/main`; since `7e439d5` it fast-forwards itself, moving clashing untracked results to `~/stash` |
+| 14 | Re-targeting Provisioned Concurrency every minute stalls scale-up: each new `put` restarts an allocation that needs about 84 s, so the config stays IN_PROGRESS and the added environments never take traffic (usable PC stuck at 9 while the API reported 10-22) | 2026-11-01-1 | Open: proposed fix is to raise PC only when the previous allocation is READY, with the target covering the longer gap |
+| 15 | Cold-start flag overstates user impact: provisioned environments flag their first request cold (no wait), and Lambda's proactive initialisation makes many on-demand inits fast too | 2026-11-01-1 | Mitigated: handler logs `init_type` (commit `7e439d5`); report user-visible cold starts (response > 1 s) as the primary count, with on-demand inits alongside |
 
 ## Runs
 
@@ -942,4 +944,53 @@ resolved; details are in the run entries named.
   - The instance's `git pull` was again blocked by an untracked controller CSV that
     had since been committed from the laptop (moved to `~/stash`).
 - Next step: online recalibration of the capacity model, then the first `--apply` run.
+
+### Run: 2026-11-01-1
+- Condition: vanilla-prophet (C2), live **apply**: first run in which the controller
+  set Provisioned Concurrency; pipeline validation, not one of the nine scenarios
+- Traffic pattern: seasonal (`TrafficPatternShape`, `SEED=7`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `DRIFT_PCT=20`): identical to the dry run 2026-10-29-5 (requests per
+  minute correlate 1.000, ratio 0.999), so the two runs differ only in PC being set
+- Data source: EC2 load generator (c7i-flex.large, commit `7e439d5`), run
+  `20261101-1201_seasonal_c2_apply`; fresh version 14 (start protocol), handler now
+  logs `init_type`; calibration `ec2_pooled_run1_run2.json`
+- Duration / sample size: 95 min, 12:02-13:37 UTC, 1,275,412 requests, 0 failures;
+  32 decisions (13:05-13:36), PC in charge from 13:07 (run minute 65)
+- Results (apply vs the same-traffic dry run, run minutes 65-95, while PC was set):
+
+  | | Dry run (no PC) | Apply (PC) |
+  |---|---|---|
+  | P95 / P99 latency | 44.9 / 47.0 ms | 45.8 / 49.0 ms |
+  | Max latency | 250 ms | 2,085 ms |
+  | User-visible cold starts (> 1 s) | 0 | 2 (minute 92) |
+  | On-demand inits | 16 | 8 |
+  | Billed duration mean | 6.58 ms | 6.03 ms |
+
+  - Warm-up (minutes 0-63, no PC in either run): P99 47.7 vs 49.2 ms, visible cold
+    starts 18 vs 24, so differences of 1-2 ms in P99 are between-session noise.
+  - Whole run: 102 cold flags in the apply run, of which 29 were
+    `provisioned-concurrency` (first request on a pre-warmed environment, no wait) and
+    73 on-demand; 26 visible (20 at start-up).
+  - PC configured: mean 17.9 environments, 574 env-minutes; about $0.018 at the
+    us-east-1 list price ($0.0000041667 per GB-s, ap-south-1 price to confirm), about
+    +21% on the on-demand cost of the same 31 minutes. The config was deleted at the
+    end; none left allocated.
+- Notes / anomalies:
+  - Apply mode works end to end: first `put` at 13:05 (target 25), READY by 13:07,
+    then one update per minute as the forecast changed, deleted on exit.
+  - **Scale-up stalled (Known issue 14).** CloudWatch `ProvisionedConcurrencyUtilization`
+    and `ProvisionedConcurrentExecutions` show usable PC following the targets down
+    (25 -> 8, 13:11-13:22) but not back up: from 13:24 to 13:35 it stayed at about 9
+    (utilisation 1.00 at 9 executions) while the API reported 10 -> 22 allocated.
+    Every minute brought a new, larger target, so the config never left
+    IN_PROGRESS. The one minute without a new target (13:35) was followed by usable PC
+    rising to 14. Spillover to on-demand reached 70% of invocations at 13:33-13:34,
+    the same minutes as the 2 visible cold starts.
+  - The dry run had no visible cold starts in minutes 65-95 at all: on this
+    sandbox, reactive scaling with proactive initialisation already copes with the
+    one ramp inside the decision window. A 95-minute run (63 of them warm-up) gives
+    too few ramps to measure a difference between conditions.
+- Next step: fix the scale-up policy (Known issue 14); lengthen runs so the decision
+  period covers several cycles (e.g. 155 min = 63 warm-up + 3 x 30-min cycles);
+  then repeat this apply run with the same seed.
 

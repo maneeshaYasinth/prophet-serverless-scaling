@@ -44,7 +44,7 @@ resolved; details are in the run entries named.
 | 11 | Seasonal traffic from EC2 is a near-exact repeating sine (fixed per-user rate, no noise), so a trivial seasonal-naive forecast beats Prophet 3x; the forecasting comparison is too easy to be meaningful | 2026-10-18-2 | Mitigated: seeded noise and drift in `TrafficPatternShape` (`traffic_realism` in the config); Prophet skill over seasonal naive +0.22 in simulation (2026-10-18-3) and +0.21 live (2026-10-18-5). Real Azure Functions trace planned before the thesis |
 | 12 | Start state not controlled: a run started minutes after earlier traffic finds environments already warm, so it has no start-up cold starts (0 in 2026-10-18-5 vs 20 in 2026-10-16-2) | 2026-10-18-5 | Fixed (2026-10-30-1): `run_experiment.sh` publishes a fresh Lambda version and moves alias `prod` to it before every run, so no environment is warm; the version is recorded in each meta file (`lambda_version`, `start_state`). Validation run: 23 cold starts, all in the first 10 s, none after. Seen again in 2026-10-29-5 |
 | 13 | A run started on stale code after `git pull` failed on the instance | 2026-10-18-4 | Resolved: `run_experiment.sh` refuses to start unless HEAD equals `origin/main`; since `7e439d5` it fast-forwards itself, moving clashing untracked results to `~/stash` |
-| 14 | Re-targeting Provisioned Concurrency every minute stalls scale-up: each new `put` restarts an allocation that needs about 84 s, so the config stays IN_PROGRESS and the added environments never take traffic (usable PC stuck at 9 while the API reported 10-22) | 2026-11-01-1 | Open: proposed fix is to raise PC only when the previous allocation is READY, with the target covering the longer gap |
+| 14 | Re-targeting Provisioned Concurrency every minute stalls scale-up: each new `put` restarts an allocation that needs about 84 s, so the config stays IN_PROGRESS and the added environments never take traffic (usable PC stuck at 9 while the API reported 10-22) | 2026-11-01-1 | Fix written, validated in replay only (2026-11-01-2): `controller.scale_up_policy: wait_for_ready` raises PC only when the config is READY (or none), to the peak over the longer window a raise stays in charge; lowers apply at once unless mid-raise above the usable count. Replay: minutes with usable PC short 2/29 vs 10/29 (held-out run 3). Needs a live apply run |
 | 15 | Cold-start flag overstates user impact: provisioned environments flag their first request cold (no wait), and Lambda's proactive initialisation makes many on-demand inits fast too | 2026-11-01-1 | Mitigated: handler logs `init_type` (commit `7e439d5`); report user-visible cold starts (response > 1 s) as the primary count, with on-demand inits alongside |
 
 ## Runs
@@ -993,4 +993,36 @@ resolved; details are in the run entries named.
 - Next step: fix the scale-up policy (Known issue 14); lengthen runs so the decision
   period covers several cycles (e.g. 155 min = 63 warm-up + 3 x 30-min cycles);
   then repeat this apply run with the same seed.
+
+### Run: 2026-11-01-2
+- Condition: vanilla-prophet (C2), offline replay (`--replay`, no AWS calls) of the
+  scale-up policy fix for Known issue 14
+- Traffic pattern: seasonal; CloudWatch exports of EC2 runs 1, 2 and 3
+  (`data/processed/seasonal_c2dry_ec2_run{1,2,3}.csv`); run 3 has the same traffic as
+  the apply run 2026-11-01-1 and was not used for calibration
+- Method: `SimulatedPC` stands in for the PC API: a raise is usable `pc_ready_minutes`
+  (2) after it is set, a put while a raise is IN_PROGRESS restarts it (as observed in
+  2026-11-01-1), a lower is usable at once. Each minute after the first decision, the
+  usable PC is compared with the measured peak concurrency.
+- Results (29 scored minutes per run):
+
+  | Run | every_minute (old): minutes short / shortfall | wait_for_ready (new): minutes short / shortfall | Configured env-min old -> new |
+  |---|---|---|---|
+  | 1 | 9 / 35 env-min | 0 / 0 | 415 -> 439 (+6%) |
+  | 2 | 11 / 57 | 3 / 13 | 484 -> 512 (+6%) |
+  | 3 (held-out) | 10 / 37 | 2 / 3 | 497 -> 523 (+5%) |
+
+- Notes / anomalies:
+  - The simulator reproduces the stall seen live: under every_minute, usable PC stays
+    at 8 from 17:25 to 17:37 in run 3 while the target climbs to 25 (live: about 9).
+    Under wait_for_ready it climbs 8 -> 10 -> 13 -> 17 -> 21 -> 25, alternating raise
+    and held.
+  - The scale-up window [now + 2, now + 5] needs a 9-step forecast, inside
+    `lead_time_minutes: 10`.
+  - The replay scores capacity against concurrency measured under reactive scaling,
+    and the restart behaviour rests on one live observation; the live apply run is the
+    real test.
+  - Default run length raised to 155 min (63 warm-up + 3 x 30-min cycles of decisions).
+- Next step: live apply run, `SEED=7`, 155 min, to confirm usable PC follows the
+  configured value on the ramps and to count user-visible cold starts.
 

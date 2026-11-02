@@ -8,7 +8,8 @@
 #   MODE       traffic  (Locust only: use with c1, the reactive baseline)
 #              dryrun   (Locust + controller deciding, Provisioned Concurrency untouched)
 #              apply    (Locust + controller setting Provisioned Concurrency)
-#   MINUTES    run length, default 95 (controller needs ~63 min of history first)
+#   MINUTES    run length, default 155: ~63 min of history first, then 3 x 30-min cycles of
+#              decisions (95 left only one ramp to compare conditions on, Run 2026-11-01-1)
 #
 # Optional env: USER_RPS (default 10), SEED (default 42), plus any TrafficPatternShape
 # setting (BASE_USERS, SPIKES_PER_HOUR, SEASON_PERIOD_S, ...).
@@ -18,9 +19,9 @@
 # Watch: tmux attach -t RUN    (detach: Ctrl-b d)
 set -euo pipefail
 
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [ $# -ge 3 ] || usage
-PATTERN="$1"; CONDITION="$2"; MODE="$3"; MINUTES="${4:-95}"
+PATTERN="$1"; CONDITION="$2"; MODE="$3"; MINUTES="${4:-155}"
 case "$PATTERN" in steady|spiky|seasonal) ;; *) usage ;; esac
 case "$CONDITION/$MODE" in
   c1/traffic|c2/dryrun|c2/apply|c3-layer2/dryrun|c3-layer2/apply) ;;

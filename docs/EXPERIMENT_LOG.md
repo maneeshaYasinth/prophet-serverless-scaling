@@ -48,6 +48,7 @@ resolved; details are in the run entries named.
 | 15 | Cold-start flag overstates user impact: provisioned environments flag their first request cold (no wait), and Lambda's proactive initialisation makes many on-demand inits fast too | 2026-11-01-1 | Mitigated: handler logs `init_type` (commit `7e439d5`); report user-visible cold starts (response > 1 s) as the primary count, with on-demand inits alongside |
 | 16 | PC allocation time varies: raises took 1-5 min to reach READY (median 2; 7 of 19 took 3 min or more), longer than `pc_ready_minutes: 2`; small raises right after another change took 5 min twice | 2026-11-02-1 | Open: consider pc_ready 3, which needs `lead_time_minutes` 11 for the raise window |
 | 17 | Spillover to on-demand environments with provisioned ones free: 25-48% of invocations spilled in minutes where PC utilisation peaked below 1.0. Mostly served by warm on-demand environments, so not cold starts, but it means PC is not the only capacity serving traffic | 2026-11-01-1 | Open: observed, cause not confirmed; report spillover alongside cold starts |
+| 18 | Visible cold-start counts vary a lot between sessions under identical conditions: minutes 0-63 (same traffic, no PC in either run) gave 3 mid-run visible cold starts in 2026-11-03-1 and 13 in 2026-11-02-1 | 2026-11-03-1 | Open: single runs cannot separate conditions on counts this small; needs replicate runs, or a pattern with more cold starts, or both. Compare conditions with the warm-up period as a within-run control |
 
 ## Runs
 
@@ -1069,4 +1070,43 @@ resolved; details are in the run entries named.
     5 min (2: 9 -> 10 at 17:01 and 10 -> 12 at 18:02, both right after another change).
 - Next step: freeze the C2 controller and run C1 seasonal, `SEED=7`, 155 min, for the
   first like-for-like C1 vs C2 comparison.
+
+### Run: 2026-11-03-1
+- Condition: reactive baseline (C1), traffic only; like-for-like partner of the C2
+  apply run 2026-11-02-1 (same seed, length, code and start protocol)
+- Traffic pattern: seasonal (`SEED=7`, `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`),
+  155 min; requests per minute correlate 1.0000 with 2026-11-02-1 (ratio 1.001)
+- Data source: EC2 load generator (c7i-flex.large, commit `870fcfd`: same code as
+  `b6ce585`, log changes only), run `20261103-0647_seasonal_c1_traffic`; fresh version 16
+- Duration / sample size: 155 min, 06:47:33-09:22 UTC, 2,073,487 requests, 0 failures
+- Results (C1 this run vs C2 2026-11-02-1):
+
+  | Period | Condition | P95 / P99 (ms) | P99.9 (ms) | Visible cold starts (> 1 s) | On-demand inits | Billed mean (ms) |
+  |---|---|---|---|---|---|---|
+  | Warm-up 0-63 (no PC in either) | C1 | 46.2 / 50.4 | 76.2 | 23 (20 at start-up) | 58 | 6.81 |
+  | | C2 | 45.5 / 48.4 | 70.4 | 33 (20 at start-up) | 56 | 6.51 |
+  | Decisions 65-155 | C1 | 46.5 / 50.8 | 83.9 | 3 | 75 | 6.72 |
+  | | C2 | 45.0 / 47.8 | 67.3 | 8 | 24 | 5.55 |
+
+  - Cost per request, minutes 65-155 (us-east-1 list prices, ap-south-1 to confirm):
+    C1 $2.14e-7, C2 $2.49e-7 (+16%), including PC allocation ($0.050) and the lower
+    duration price for the 71% of invocations served by PC.
+  - Per-minute P99 in minutes 65-155: C2 lower in 89 of 91 minutes (mean 47.4 vs 50.3 ms).
+- Notes / anomalies:
+  - Felt cold starts were **not** reduced: 3 (C1, all at minute 150) vs 8 (C2).
+    Reactive Lambda with proactive initialisation already handles the gentle
+    30-min seasonal ramps; most on-demand inits in C1 (75) were not felt.
+  - The P99 gap is partly a session effect: C2 was already 2.0 ms lower in the
+    warm-up, before any PC. Difference-in-differences (decision minus warm-up):
+    C1 +0.4 ms, C2 -0.6 ms, so PC's own effect on P99 is about -1 ms.
+  - Session-to-session spread in visible cold starts (3 vs 13 in identical warm-ups,
+    Known issue 18) is larger than the difference between conditions.
+  - Billed duration was 17% lower under C2 (5.55 vs 6.72 ms), consistent with the
+    warm-up gap (6.51 vs 6.81) plus requests landing on pre-initialised environments.
+- Interpretation: on predictable, gentle ramps, forecasting-based PC buys about 1 ms
+  of P99 for +16% cost and does not reduce felt cold starts on this function.
+  Proactive scaling can only pay off where reactive scaling has to create many
+  environments quickly (sharp spikes).
+- Next step: run the spiky row, where reactive scaling should struggle and C3's
+  `yhat_upper` headroom matters most; plan replicates for the final comparison.
 

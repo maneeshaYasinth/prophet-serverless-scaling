@@ -11,7 +11,8 @@
 #   MINUTES    run length, default 155: ~63 min of history first, then 3 x 30-min cycles of
 #              decisions (95 left only one ramp to compare conditions on, Run 2026-11-01-1)
 #
-# Optional env: USER_RPS (default 10), SEED (default 42), plus any TrafficPatternShape
+# Optional env: USER_RPS (default 10), SEED (default 42), LOCUST_PROCESSES (default 2),
+# plus any TrafficPatternShape
 # setting (BASE_USERS, SPIKES_PER_HOUR, SEASON_PERIOD_S, ...).
 #
 # Writes data/raw/RUN.jsonl (+ Locust csv/html), results/controller/RUN.csv and
@@ -19,7 +20,7 @@
 # Watch: tmux attach -t RUN    (detach: Ctrl-b d)
 set -euo pipefail
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [ $# -ge 3 ] || usage
 PATTERN="$1"; CONDITION="$2"; MODE="$3"; MINUTES="${4:-155}"
 case "$PATTERN" in steady|spiky|seasonal) ;; *) usage ;; esac
@@ -34,6 +35,9 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-south-1}"
 : "${RESULTS_BUCKET:?RESULTS_BUCKET not set (run as ec2-user: sudo -iu ec2-user)}"
 FUNCTION="sandbox-lambda"
 USER_RPS="${USER_RPS:-10}"
+# One Locust process tops out at ~880 req/s on c7i-flex.large (Run 2026-11-03-2); one per
+# vCPU reaches the spiky design load (~1,100-1,340 req/s at spike peaks)
+LOCUST_PROCESSES="${LOCUST_PROCESSES:-2}"
 # Noise and drift from experiment_config.yaml (traffic_realism); env overrides still win
 eval "$(venv/bin/python -m src.data_generation.traffic_env 2>/dev/null | sed 's/^export \([A-Z_]*\)=\(.*\)$/export \1="${\1:-\2}"/')"
 SEED="${SEED:-42}"
@@ -94,7 +98,7 @@ echo "Alias $ALIAS -> version $LAMBDA_VERSION (no warm environments)."
 mkdir -p data/raw results/controller
 cat > "data/raw/$RUN.meta.json" <<EOF
 {"run": "$RUN", "pattern": "$PATTERN", "condition": "$CONDITION", "mode": "$MODE",
- "minutes": $MINUTES, "user_rps": $USER_RPS, "seed": $SEED, "commit": "$COMMIT",
+ "minutes": $MINUTES, "user_rps": $USER_RPS, "seed": $SEED, "commit": "$COMMIT", "locust_processes": $LOCUST_PROCESSES,
  "lambda_version": "$LAMBDA_VERSION", "start_state": "fresh version (cold)",
  "noise_pct": $NOISE_PCT, "noise_interval_s": $NOISE_INTERVAL_S, "drift_pct": $DRIFT_PCT,
  "instance_type": "$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-type)",
@@ -107,7 +111,7 @@ LOCUST="TRAFFIC_PATTERN=$PATTERN DURATION_S=$((MINUTES * 60)) SEED=$SEED USER_RP
   NOISE_PCT=$NOISE_PCT NOISE_INTERVAL_S=$NOISE_INTERVAL_S DRIFT_PCT=$DRIFT_PCT \
   SANDBOX_INVOKE_LOG=data/raw/$RUN.jsonl venv/bin/locust \
   -f src/data_generation/locust_scenarios/sandbox_locustfile_patterns.py --headless \
-  --csv data/raw/$RUN --html data/raw/$RUN.html"
+  --processes $LOCUST_PROCESSES --csv data/raw/$RUN --html data/raw/$RUN.html"
 
 if [ "$MODE" = "traffic" ]; then
   tmux new-session -d -s "$RUN" -n locust -c "$REPO" "$LOCUST; $SYNC; exec bash"

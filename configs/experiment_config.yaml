@@ -25,7 +25,8 @@ controller:
   scale_up_policy: "wait_for_ready"  # raise PC only once the last allocation is READY; a put while
                                      # IN_PROGRESS restarts it (Run 2026-11-01-1, Known issue 14).
                                      # "every_minute" = old behaviour, for comparison
-  max_provisioned_concurrency: 40  # cost/safety cap (~$0.07/h at 40 x 128 MB)
+  max_provisioned_concurrency: 70  # cost/safety cap (~$0.13/h at 70 x 128 MB). Was 40; a warm 880 req/s
+                                   # spike needs ~59 with the margin (Run 2026-11-03-2). Seasonal C2 never exceeded 27
   # Pooled EC2 calibration, runs 1 + 2, 80-400 req/s, multiplicative margin (Run 2026-10-29-1).
   # Was seasonal_c2dry_ec2_run1.json (fitted only up to 320 req/s; under-provisioned above it)
   calibration_file: "results/capacity_calibration/ec2_pooled_run1_run2.json"

@@ -32,7 +32,7 @@ resolved; details are in the run entries named.
 | # | Issue | First seen | Status / mitigation |
 |---|---|---|---|
 | 1 | Laptop load generator throttled on battery with the display off: throughput capped at about 45 req/s regardless of users | 2026-10-10-3 | Resolved: Locust and the controller now run on EC2 (`loadgen/`, c7i-flex.large in ap-south-1); validated in 2026-10-16-1 |
-| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Open (2026-11-03-2): confirmed at the spiky peak. A single Locust process on c7i-flex.large tops out at about 880 req/s: spikes reached 80.4% of the 910-1,340 req/s target (outside spikes 102%), and client latency inside spikes (P95 136 ms) includes generator queueing. Fix written (2026-11-04): `run_experiment.sh` runs Locust with `--processes 2` (`LOCUST_PROCESSES`, recorded in meta.json); tested locally with a dummy user (exact 200 req/s, load split evenly, log intact). Needs the C1 spiky rerun to confirm the full spike load |
+| 2 | Single-process Locust saturates at high load (5x users gave 3.6x throughput; client P95 up while billed time flat) | 2026-10-04-1 | Resolved (2026-11-04-1): `run_experiment.sh` runs Locust with `--processes 2` (`LOCUST_PROCESSES`, recorded in meta.json). A single process on c7i-flex.large topped out at about 880 req/s (80.4% of the spike target, 2026-11-03-2); with two, spikes reach 95.3% of target (peak 1,364 req/s) and spike P99 fell from 209.9 to 80.0 ms. The remaining ~5% shortfall is the ramp at spike onsets |
 | 3 | Network conditions vary between sessions (131 vs 225 req/s at 20 users) | 2026-10-06-1 | Resolved: same-region EC2 client plus `USER_RPS` (fixed requests per second per user) makes the load independent of latency. Still run conditions back-to-back |
 | 4 | Sandbox stack missing at run time (destroyed between sessions), so every request failed | 2026-10-04-1, 2026-10-10-3 | Mitigated: keep the function deployed (idle cost is zero); invoke once and check Locust `# fails` = 0 before each run |
 | 5 | `sandbox_user.py` appends to the invoke log, mixing runs in one file | 2026-10-04-1 | Mitigated: unique `SANDBOX_INVOKE_LOG` per run |
@@ -1146,4 +1146,50 @@ resolved; details are in the run entries named.
 - Next step: fix the generator ceiling (`--processes 2`) and rerun C1 spiky so the
   spiky row uses the full design load; raise `max_provisioned_concurrency` above 40
   before C2/C3 spiky; extend the calibration to the spiky load range.
+
+### Run: 2026-11-04-1
+- Condition: reactive baseline (C1), traffic only; rerun of 2026-11-03-2 with the
+  load generator fix, and the C1 spiky result used in the 3x3 comparison
+- Traffic pattern: spiky, identical to 2026-11-03-2 (`SEED=7`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `DRIFT_PCT=20`; same 16 spikes), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `a51d765`, Locust
+  `--processes 2`), run `20261104-0439_spiky_c1_traffic`; fresh version 18;
+  CloudWatch export `data/processed/spiky_c1_ec2_run2.csv`
+- Duration / sample size: 155 min, 04:39:13-07:14 UTC, 3,217,025 requests, 0 failures
+- Results:
+  - Load delivered: inside spikes 1,045 req/s against a 1,096 target (**95.3%**, was
+    80.4%), peak second 1,364; outside spikes 103.3%
+  - P95 / P99 latency: 55.5 / 69.2 ms overall; inside spikes 60.3 / 80.0 ms
+    (P99.9 478.2); outside spikes 46.2 / 55.7 ms
+  - Cold starts: 630 on-demand inits; **566 felt (> 1 s), 545 of them inside spikes**
+    (20 at start-up, 1 elsewhere)
+  - Felt cold starts per spike (start minute, gap since previous spike ended: count):
+    5.7 (start): 59, 8.9 (1.7): 0, 10.7 (0.3): 0, 18.9 (7.2): 33, 22.1 (1.9): 0,
+    27.7 (4.5): 0, 47.2 (18.0): 68, 49.5 (0.5): 0, 65.0 (14.3): 76, 82.0 (15.2): 87,
+    88.3 (4.9): 0, 96.0 (6.3): 62, 97.8 (overlap): 0, 99.6 (0.5): 0, 131.3 (30.7): 88,
+    149.4 (16.7): 72
+  - Concurrency (CloudWatch per-minute maximum): peak 128; above 70 in 27 of 154
+    minutes, above 40 in 33; 174-1,194 req/s per minute
+  - Cost (us-east-1 list prices, 128 MB, no PC): $0.694 total, $2.16e-7 per request
+- Notes / anomalies:
+  - The generator fix worked: spike load rose from 80.4% to 95.3% of target, and
+    spike P99 fell from 209.9 ms to 80.0 ms, so most of the earlier spike latency was
+    client-side queueing (Known issue 2). The remaining ~5% is mostly the ramp at
+    each spike onset.
+  - Felt cold starts barely changed (566 vs 600), and the same gap rule holds: every
+    spike that started within 5 min of the previous one had 0, every spike 6.3+ min
+    after one had 33-88. Two spikes that had a few felt cold starts last time (88.3,
+    99.6) had 0 now; total spike count is consistent across the two sessions.
+  - **The PC cap of 70 is too low for this load.** Even spikes with no cold starts
+    (8.9, 10.7, 22.1, 27.7, 88.3) reached a per-minute maximum concurrency of 74-89,
+    because a spike covers only part of a minute and its in-spike rate (~1,000-1,360
+    req/s) is far above the per-minute average. The pooled calibration (80-400
+    req/s) gives 72 x 1.26 = 91 at 1,364 req/s. Raise the cap to about 95 before
+    C2/C3 spiky (~$0.18/h allocated at 95 x 128 MB).
+  - Minutes with cold-start bursts (e.g. 64.8: 782 req/s, concurrency 128) inflate
+    concurrency because each init holds an environment for ~3 s; exclude them when
+    extending the calibration.
+- Next step: extend the capacity calibration to the spiky range with warm minutes
+  from runs 2026-11-03-2 and 2026-11-04-1; raise `max_provisioned_concurrency`; then
+  C2 spiky (apply).
 

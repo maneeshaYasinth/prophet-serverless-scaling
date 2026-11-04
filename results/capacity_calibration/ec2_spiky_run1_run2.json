@@ -1,0 +1,102 @@
+{
+  "intercept": -1.9113992404210784,
+  "slope_per_rps": 0.09024058329163338,
+  "headroom": 0.0,
+  "buffer_percent": 0,
+  "interval_seconds": 60,
+  "min_concurrency": 1,
+  "max_concurrency": null,
+  "headroom_mode": "multiplicative",
+  "headroom_factor": 1.4354857060817707,
+  "sources": [
+    "data/processed/spiky_c1_ec2_run1_warm.csv",
+    "data/processed/spiky_c1_ec2_run2_warm.csv"
+  ],
+  "load_range_rps": [
+    128.3,
+    1194.4
+  ],
+  "r_squared": 0.809,
+  "calibration_quantile": 0.95,
+  "comparison": [
+    {
+      "mode": "additive",
+      "split": "test spiky_c1_ec2_run1_warm",
+      "out_of_sample": true,
+      "minutes": 141,
+      "under_provisioned_minutes": 5,
+      "under_provisioned_pct": 3.5,
+      "mean_shortfall_when_under": 8.2,
+      "provisioned_env_minutes": 7056,
+      "excess_env_minutes": 3701,
+      "excess_pct_of_actual": 109.0,
+      "worst_shortfall": 12
+    },
+    {
+      "mode": "additive",
+      "split": "test spiky_c1_ec2_run2_warm",
+      "out_of_sample": true,
+      "minutes": 145,
+      "under_provisioned_minutes": 12,
+      "under_provisioned_pct": 8.3,
+      "mean_shortfall_when_under": 11.83,
+      "provisioned_env_minutes": 6362,
+      "excess_env_minutes": 2324,
+      "excess_pct_of_actual": 55.6,
+      "worst_shortfall": 40
+    },
+    {
+      "mode": "additive",
+      "split": "pooled",
+      "out_of_sample": false,
+      "minutes": 286,
+      "under_provisioned_minutes": 14,
+      "under_provisioned_pct": 4.9,
+      "mean_shortfall_when_under": 12.07,
+      "provisioned_env_minutes": 13382,
+      "excess_env_minutes": 5975,
+      "excess_pct_of_actual": 78.9,
+      "worst_shortfall": 36
+    },
+    {
+      "mode": "multiplicative",
+      "split": "test spiky_c1_ec2_run1_warm",
+      "out_of_sample": true,
+      "minutes": 141,
+      "under_provisioned_minutes": 5,
+      "under_provisioned_pct": 3.5,
+      "mean_shortfall_when_under": 14.2,
+      "provisioned_env_minutes": 5496,
+      "excess_env_minutes": 2171,
+      "excess_pct_of_actual": 63.9,
+      "worst_shortfall": 23
+    },
+    {
+      "mode": "multiplicative",
+      "split": "test spiky_c1_ec2_run2_warm",
+      "out_of_sample": true,
+      "minutes": 145,
+      "under_provisioned_minutes": 5,
+      "under_provisioned_pct": 3.4,
+      "mean_shortfall_when_under": 22.6,
+      "provisioned_env_minutes": 5947,
+      "excess_env_minutes": 1880,
+      "excess_pct_of_actual": 45.0,
+      "worst_shortfall": 45
+    },
+    {
+      "mode": "multiplicative",
+      "split": "pooled",
+      "out_of_sample": false,
+      "minutes": 286,
+      "under_provisioned_minutes": 13,
+      "under_provisioned_pct": 4.5,
+      "mean_shortfall_when_under": 15.77,
+      "provisioned_env_minutes": 11020,
+      "excess_env_minutes": 3649,
+      "excess_pct_of_actual": 48.2,
+      "worst_shortfall": 46
+    }
+  ],
+  "note": "pooled fit; comparison scores each margin with a perfect forecast"
+}

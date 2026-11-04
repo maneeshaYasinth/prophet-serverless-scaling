@@ -25,11 +25,18 @@ controller:
   scale_up_policy: "wait_for_ready"  # raise PC only once the last allocation is READY; a put while
                                      # IN_PROGRESS restarts it (Run 2026-11-01-1, Known issue 14).
                                      # "every_minute" = old behaviour, for comparison
-  max_provisioned_concurrency: 70  # cost/safety cap (~$0.13/h at 70 x 128 MB). Was 40; a warm 880 req/s
-                                   # spike needs ~59 with the margin (Run 2026-11-03-2). Seasonal C2 never exceeded 27
+  max_provisioned_concurrency: 120  # cost/safety cap (~$0.23/h at 120 x 128 MB). Was 40, then 70; the
+                                    # highest warm (no cold start) minute in C1 spiky reached 112
+                                    # (Run 2026-11-04-1). Seasonal C2 never exceeded 27
   # Pooled EC2 calibration, runs 1 + 2, 80-400 req/s, multiplicative margin (Run 2026-10-29-1).
   # Was seasonal_c2dry_ec2_run1.json (fitted only up to 320 req/s; under-provisioned above it)
   calibration_file: "results/capacity_calibration/ec2_pooled_run1_run2.json"
+  # A pattern listed here uses its own calibration instead. Spiky needs ~1.7x the environments per
+  # average req/s: a 60-120 s spike fills only part of a minute, so the minute's peak concurrency sits
+  # far above what its average rate suggests. Fitted on warm minutes of C1 spiky runs 2026-11-03-2
+  # and 2026-11-04-1 (src/evaluation/warm_minutes.py); used by both C2 and C3
+  calibration_file_by_pattern:
+    spiky: "results/capacity_calibration/ec2_spiky_run1_run2.json"
 
 forecasting:
   lead_time_minutes: 10         # how far ahead Prophet forecasts before a scaling action
@@ -64,6 +71,10 @@ traffic_patterns:
     base_rps: 15
     daily_amplitude_pct: 60
     period_minutes: 30           # compressed "day"; matches SEASON_PERIOD_S=1800 in traffic_shapes.py
+
+evaluation:
+  felt_cold_start_ms: 1000   # a response above this is a cold start the client felt: inits take ~3 s
+                             # (simulated), warm responses stay under ~500 ms even at P99.9 (Run 2026-11-04-1)
 
 metrics:
   - p95_latency_ms

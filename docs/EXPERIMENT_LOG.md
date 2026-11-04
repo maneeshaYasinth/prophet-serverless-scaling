@@ -1193,3 +1193,43 @@ resolved; details are in the run entries named.
   from runs 2026-11-03-2 and 2026-11-04-1; raise `max_provisioned_concurrency`; then
   C2 spiky (apply).
 
+### Run: 2026-11-04-2
+- Condition: analysis only (no AWS traffic); capacity calibration for the spiky row
+- Data source: CloudWatch exports of C1 spiky runs 2026-11-03-2 and 2026-11-04-1
+  (`data/processed/spiky_c1_ec2_run{1,2}.csv`) and their invoke logs
+- Method:
+  - `src/evaluation/warm_minutes.py` drops every minute in which any request that
+    *started* in it was a felt cold start (> `evaluation.felt_cold_start_ms`, 1000 ms),
+    writing `*_warm.csv`. Start time = log timestamp - response time: the log is
+    stamped when the response arrives, so without this a burst starting at :57 landed
+    in the next minute and its inflated minute stayed in (2026-11-03 15:50:
+    242 req/s, concurrency 115). Dropped 14 of 155 and 9 of 154 minutes.
+  - `src/evaluation/compare_capacity_models.py` on the two warm files,
+    `--name ec2_spiky_run1_run2`; leave-one-run-out with a perfect forecast
+- Results (multiplicative margin, the configured mode):
+  - Pooled fit: concurrency = -1.91 + 0.0902 x req/s, x 1.44 (R^2 0.809, 128-1,194
+    req/s). Seasonal pooled fit was 0.165 + 0.0529 x req/s, x 1.26
+  - Held-out run 1: 3.5% of minutes under-provisioned (worst 23), 63.9% spare;
+    held-out run 2: 3.4% (worst 45), 45.0% spare. Both within the 5% design target
+  - Highest warm minute: concurrency 112 at 1,167 req/s (run 2); 78 in run 1, whose
+    spikes were capped at 880 req/s by the load generator
+- Notes / anomalies:
+  - Spiky needs about 1.7x the environments per average req/s of seasonal. A 60-120 s
+    spike fills only part of a minute, so the minute's peak concurrency reflects the
+    in-spike rate while its invocation count reflects the average. Under-provisioned
+    minutes are spike edges (a spike starting or ending a few seconds into a minute).
+    This is a limit of minute-level forecasting, not of the fit.
+  - Using a pattern-specific calibration matches how seasonal was done: each workload
+    is calibrated on its own observed traffic before its C2/C3 runs, and C2 and C3
+    share the same file, so the comparison between them is unaffected. The
+    calibration traffic uses the same seed as the C2/C3 runs (also true for seasonal),
+    so the fit is optimistic for unseen spiky traffic.
+  - Config: `controller.calibration_file_by_pattern.spiky` points at the new file;
+    seasonal keeps `ec2_pooled_run1_run2.json`. `max_provisioned_concurrency` 70 -> 120,
+    just above the highest warm minute (112); 120 x 128 MB costs about $0.23/h
+    while allocated. The controller prints which calibration and cap it loaded.
+  - Replay check (C2, run 2 CloudWatch data) loaded the spiky file and cap 120 and ran
+    without errors; its numbers are not a result (the replay sees the same run it
+    was calibrated on).
+- Next step: C2 spiky `--apply` run.
+

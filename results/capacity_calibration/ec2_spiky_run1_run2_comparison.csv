@@ -1,0 +1,7 @@
+mode,split,out_of_sample,minutes,under_provisioned_minutes,under_provisioned_pct,mean_shortfall_when_under,provisioned_env_minutes,excess_env_minutes,excess_pct_of_actual,worst_shortfall
+additive,test spiky_c1_ec2_run1_warm,True,141,5,3.5,8.2,7056,3701,109.0,12
+additive,test spiky_c1_ec2_run2_warm,True,145,12,8.3,11.83,6362,2324,55.6,40
+additive,pooled,False,286,14,4.9,12.07,13382,5975,78.9,36
+multiplicative,test spiky_c1_ec2_run1_warm,True,141,5,3.5,14.2,5496,2171,63.9,23
+multiplicative,test spiky_c1_ec2_run2_warm,True,145,5,3.4,22.6,5947,1880,45.0,45
+multiplicative,pooled,False,286,13,4.5,15.77,11020,3649,48.2,46

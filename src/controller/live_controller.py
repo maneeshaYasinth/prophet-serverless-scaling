@@ -335,11 +335,14 @@ def main():
     ctl = cfg["controller"]
     if args.policy:
         ctl["scale_up_policy"] = args.policy
+    calibration_file = ctl.get("calibration_file_by_pattern", {}).get(args.pattern, ctl["calibration_file"])
     capacity_model = CapacityModel.load(
-        REPO_ROOT / ctl["calibration_file"],
+        REPO_ROOT / calibration_file,
         buffer_percent=cfg["aws"]["pc_buffer_percent"],
         max_concurrency=ctl["max_provisioned_concurrency"],
     )
+    print(f"Capacity model: {calibration_file} ({capacity_model.margin_label()}, "
+          f"cap {capacity_model.max_concurrency})")
     logging.getLogger("cmdstanpy").disabled = True
     np.random.seed(cfg["forecasting"]["rolling"]["random_seed"])
 

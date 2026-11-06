@@ -49,7 +49,7 @@ resolved; details are in the run entries named.
 | 16 | PC allocation time varies: raises took 1-5 min to reach READY (median 2; 7 of 19 took 3 min or more), longer than `pc_ready_minutes: 2`; small raises right after another change took 5 min twice | 2026-11-02-1 | Open: consider pc_ready 3, which needs `lead_time_minutes` 11 for the raise window |
 | 17 | Spillover to on-demand environments with provisioned ones free: 25-48% of invocations spilled in minutes where PC utilisation peaked below 1.0. Mostly served by warm on-demand environments, so not cold starts, but it means PC is not the only capacity serving traffic | 2026-11-01-1 | Open: observed, cause not confirmed; report spillover alongside cold starts |
 | 18 | Visible cold-start counts vary a lot between sessions under identical conditions: minutes 0-63 (same traffic, no PC in either run) gave 3 mid-run visible cold starts in 2026-11-03-1 and 13 in 2026-11-02-1 | 2026-11-03-1 | Open: single runs cannot separate conditions on counts this small; needs replicate runs, or a pattern with more cold starts, or both. Compare conditions with the warm-up period as a within-run control |
-| 19 | Client latency inside spikes rises when PC is allocated and full: in-spike P95 106-112 ms against 58-68 ms in the same C1 spikes, only in spikes where PC was allocated and spilling over (not in spike 65.0, whose PC arrived late, nor outside spikes, nor in the warm-up). Billed duration is lower, so the extra time is outside the function: invoke routing with spillover is the likely cause, not confirmed. Not controller CPU (one Prophet step ~0.05 s) | 2026-11-04-3 | Open: affects the latency comparison for any condition with PC under spiky load; report it as a measured effect of partial PC, check whether it appears in C3 spiky |
+| 19 | Client latency inside spikes rises whenever PC is allocated: in-spike P95 ~101 ms in C2 and C3 against 60.5 ms in C1 (PC period), outside spikes unchanged (46-47 ms), warm-up (no PC) unchanged. In C3 the rise is the same for requests served by provisioned and by on-demand environments, and in spikes with almost no spillover, so it is not spillover. Billed duration is unchanged (median 2 ms), so the extra time is outside the function (invoke path at ~1,000 req/s with PC on the alias is the likely place, not confirmed). Not controller CPU (one Prophet step ~0.05 s) | 2026-11-04-3 | Open (2026-11-06-1): affects P95/P99 for every PC condition under spiky load. A diagnostic run with static PC (no controller) would show whether PC alone causes it |
 
 ## Runs
 
@@ -1279,4 +1279,49 @@ resolved; details are in the run entries named.
     ~0.05 s of CPU.
 - Next step: C3-layer2 spiky (`--apply`), same traffic; then Layer 3 in the live
   controller.
+
+### Run: 2026-11-06-1
+- Condition: enhanced Prophet, Layer 2 only (C3-layer2: scale to `yhat_upper`), `--apply`
+- Traffic pattern: spiky, identical to 2026-11-04-1 and -3 (`SEED=7`, `USER_RPS=10`,
+  `NOISE_PCT=10`, `DRIFT_PCT=20`; same 16 spikes), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `6ff6723`: code identical to
+  the C2 run, the commit only adds its log entry; Locust `--processes 2`), run
+  `20261106-0420_spiky_c3-layer2_apply`; fresh version 21; capacity model
+  `ec2_spiky_run1_run2.json`, cap 120, `wait_for_ready`; CloudWatch export (with PC
+  metrics) `data/processed/spiky_c3l2_apply_ec2_run1.csv`. Instance stopped by the
+  scheduled `autostop` at 07:15 UTC; PC none afterwards
+- Duration / sample size: 155 min, 04:20:55-06:56 UTC, 3,205,565 requests, 0 failures
+- Results (C1 = 2026-11-04-1, C2 = 2026-11-04-3, same traffic):
+  - Felt cold starts (> 1 s), PC period (min 65-155): **C1 386, C2 407, C3 144 (-63%
+    vs C1)**; whole run 566 / 641 / 327; warm-up (no PC) 180 / 234 / 183
+  - Per spike in the PC period (C1/C2/C3): 65.0: 76/66/0, 82.0: 87/111/56, 88.3: 0/0/0,
+    96.0: 62/27/0, 97.8: 0/0/2, 99.6: 0/0/0, 131.3: 88/109/43, 149.4: 72/92/41
+  - P95 / P99, PC period: C1 54.9 / 68.2, C2 86.3 / 113.5, C3 84.9 / 114.8 ms; inside
+    spikes 60.5 / 79.1, 102.5 / 131.7, 101.0 / 130.5; outside spikes 46.0 / 55.3,
+    46.4 / 66.1, 46.9 / 66.6
+  - PC: configured mean 106.1 (cap 120 reached in 21 minutes), allocated mean 102.7,
+    usable at most 97; PC at spike onsets 85-114 (C2: 0-50); 96% of PC-period requests
+    on provisioned environments, 78,410 spilled (C2: 468,946)
+  - Cost per request (us-east-1 list prices, 128 MB), whole run: C1 $2.16e-7, C2
+    $2.46e-7, **C3 $3.02e-7 (+40% vs C1)**; PC period $2.16e-7 / $2.69e-7 / $3.67e-7
+    (+70%); PC allocation $0.289 (C2 $0.106)
+- Notes / anomalies:
+  - First condition that reduced cold starts: the difference (386 -> 144) is far larger
+    than the session-to-session spread per spike (up to ~35, Known issue 18). Two long-gap
+    spikes went to 0 (65.0, 96.0); three were roughly halved (82.0, 131.3, 149.4).
+  - How: under spiky traffic Prophet's band is very wide (the preliminary
+    `yhat_upper` result), so scaling to `yhat_upper` keeps PC near 100 most of the
+    time instead of chasing spikes. That is close to a static high PC level, and
+    costs like one: +40% per request. An examiner may ask whether a static PC of ~100
+    would do as well; that is not in the 3x3 design.
+  - Remaining felt cold starts sit in spikes with spillover although allocated PC was
+    at or above concurrency (82.0: 99 allocated, peak 85, 20,478 spilled), the
+    spillover-with-free-PC behaviour of Known issue 17.
+  - Tail latency did not improve: in-spike P95 is the same as C2 (~101 ms vs C1 60.5),
+    for provisioned and on-demand environments alike (Known issue 19). The cold-start
+    gain shows at P99.9 inside spikes (500.8 ms vs C2 591.8, C1 527.7) more than at
+    P95/P99, because felt cold starts are under 0.1% of requests.
+- Next step: Layer 3 (residual anomaly override) in the live controller and the full C3
+  run; decide with the supervisor whether to add a static-PC diagnostic run (Known
+  issue 19, and the static-PC question above); steady row.
 

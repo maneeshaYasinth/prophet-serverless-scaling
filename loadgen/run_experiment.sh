@@ -23,11 +23,6 @@ set -euo pipefail
 usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [ $# -ge 3 ] || usage
 PATTERN="$1"; CONDITION="$2"; MODE="$3"; MINUTES="${4:-155}"
-case "$PATTERN" in steady|spiky|seasonal) ;; *) usage ;; esac
-case "$CONDITION/$MODE" in
-  c1/traffic|c2/dryrun|c2/apply|c3-layer2/dryrun|c3-layer2/apply|c3-layer23/dryrun|c3-layer23/apply) ;;
-  *) echo "Invalid CONDITION/MODE: $CONDITION/$MODE (c1 needs traffic; c2, c3-layer2 and c3-layer23 need dryrun or apply)"; exit 1 ;;
-esac
 
 REPO="$HOME/prophet-serverless-scaling"
 cd "$REPO"
@@ -66,6 +61,12 @@ elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
   echo "Updated $COMMIT -> $(git rev-parse --short HEAD); restarting with the new code."
   exec "$0" "$@"
 fi
+# Checked after the self-update, so a condition added in a newer commit is known here
+case "$PATTERN" in steady|spiky|seasonal) ;; *) usage ;; esac
+case "$CONDITION/$MODE" in
+  c1/traffic|c2/dryrun|c2/apply|c3-layer2/dryrun|c3-layer2/apply|c3-layer23/dryrun|c3-layer23/apply) ;;
+  *) echo "Invalid CONDITION/MODE: $CONDITION/$MODE (c1 needs traffic; c2, c3-layer2 and c3-layer23 need dryrun or apply)"; exit 1 ;;
+esac
 if tmux has-session 2>/dev/null; then
   echo "A tmux session is already running (tmux ls). Finish or kill it first."; exit 1
 fi

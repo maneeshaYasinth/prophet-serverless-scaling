@@ -1325,3 +1325,51 @@ resolved; details are in the run entries named.
   run; decide with the supervisor whether to add a static-PC diagnostic run (Known
   issue 19, and the static-PC question above); steady row.
 
+### Run: 2026-11-06-2
+- Condition: analysis and replay only (no AWS); Layer 3 (z-score residual override)
+  design check and implementation
+- Data source: CloudWatch exports `data/processed/spiky_c1_ec2_run2.csv` (C1 spiky,
+  2026-11-04-1) and `data/processed/seasonal_c2dry_ec2_run2.csv`
+- Method:
+  - Detection timing: one-step-ahead Prophet forecast of each minute from the 60
+    minutes before it (no leakage), residual = actual - yhat, rolling z-score over 30
+    residuals, threshold 2.0 (`ZScoreAnomalyDetector` as written). A minute is visible
+    to the controller 1 + `cloudwatch_delay_minutes` (3) after it starts, and a raise is
+    usable `pc_ready_minutes` (2) later
+  - Implementation replayed with `--condition c3-layer2` and `--condition c3-layer23`
+    on both files
+- Results:
+  - Detection works: 7 of 8 spikes after warm-up flagged (z 2.3-21.7); all 11 flags were
+    upward. The spike at 99.6 scored z 1.82 because earlier spike residuals stayed in
+    the window and inflated the std
+  - Timing does not: every override would be usable 5.8-6.8 min after its spike began,
+    after the spike (60-120 s) had ended (e.g. spike 65.0-66.8 -> usable 70.8;
+    131.3-132.6 -> 136.8)
+  - Replay of the implementation, spiky: 11 flagged minutes, 11 overrides, all of them
+    after the spike they answer; usable PC below concurrency 5/89 minutes for both
+    `c3-layer2` and `c3-layer23` (shortfall 74 vs 77 env-min), configured env-min +0.2%.
+    Seasonal: 0 flags, identical decisions
+- Decision (with the student): implement Layer 3 as proposed, not as an
+  anomaly-triggered hold, and report the detection lag as a measured limit:
+  - Residual of the newest complete minute against a forecast from the window one
+    minute earlier (`plan(residual=True)`), scored once per minute (`Layer3`)
+  - z > +threshold: `target` and `target_up` raised to at least
+    `capacity_model.target(observed invocations)`, the same calibrated conversion as the
+    forecast (the old stub's fixed 10 requests per environment is not used). Lasts
+    while that minute is flagged
+  - z < -threshold: logged only, never lowers PC (cost asymmetry, as in the capacity
+    margin)
+  - Flagged residuals are kept out of the detector window (`exclude_anomalies`), so the
+    spread describes normal error; `zscore_min_residuals: 10` before any flag
+  - Config: `forecasting.zscore_window_minutes: 30`, `zscore_min_residuals: 10`;
+    condition `c3-layer23` in `live_controller.py` and `run_experiment.sh`; decision log
+    gains residual_ds, residual_y, residual_yhat, z_score, anomaly, override_target
+- Notes / anomalies:
+  - Scoring starts at minute 64 (needs 61 minutes of data) and flags from about
+    minute 74, so the first spike after warm-up (65.0) can never be flagged.
+  - Expected outcome of the live run: little or no cold-start change against
+    `c3-layer2` on spiky traffic, because Layer 2 already holds PC near the cap and
+    Layer 3 reacts ~6 min late. That is a result about reactive overrides on
+    CloudWatch data, not a reason to change the design after seeing it.
+- Next step: C3-layer23 spiky `--apply` run, same traffic.
+

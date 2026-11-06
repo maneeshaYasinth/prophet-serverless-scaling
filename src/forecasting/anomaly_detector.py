@@ -24,7 +24,7 @@ from collections import deque
 
 
 class ZScoreAnomalyDetector:
-    def __init__(self, window_size=30, z_threshold=2.0):
+    def __init__(self, window_size=30, z_threshold=2.0, min_residuals=2, exclude_anomalies=False):
         """
         Args:
             window_size: number of recent residuals kept for computing the
@@ -34,9 +34,17 @@ class ZScoreAnomalyDetector:
             z_threshold: number of standard deviations beyond which a
                 residual counts as an anomaly. +-2 sigma matches the
                 enhancement-layer design in the dissertation.
+            min_residuals: residuals needed before any point can be flagged;
+                a spread from very few points is unstable.
+            exclude_anomalies: keep flagged residuals out of the window, so the
+                mean/std describe normal forecast error. Otherwise a few spikes
+                inflate the std and hide the next one (a spike replayed on C1
+                spiky data scored z 1.82 for this reason, Run 2026-11-06-2).
         """
         self.window_size = window_size
         self.z_threshold = z_threshold
+        self.min_residuals = max(2, min_residuals)
+        self.exclude_anomalies = exclude_anomalies
         self._residuals = deque(maxlen=window_size)
 
     def update_and_check(self, actual, yhat):
@@ -53,15 +61,15 @@ class ZScoreAnomalyDetector:
         is_anomaly = False
         z_score = 0.0
 
-        # Need at least 2 prior points to compute a meaningful stdev.
-        if len(self._residuals) >= 2:
+        if len(self._residuals) >= self.min_residuals:
             mean = statistics.mean(self._residuals)
             stdev = statistics.pstdev(self._residuals)
             if stdev > 0:
                 z_score = (residual - mean) / stdev
                 is_anomaly = abs(z_score) > self.z_threshold
 
-        self._residuals.append(residual)
+        if not (is_anomaly and self.exclude_anomalies):
+            self._residuals.append(residual)
 
         return {
             "actual": actual,

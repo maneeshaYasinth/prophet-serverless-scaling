@@ -1,5 +1,5 @@
 """
-Live forecast -> Provisioned Concurrency loop (C2, optionally C3 Layer 2).
+Live forecast -> Provisioned Concurrency loop (C2, C3 Layer 2, C3 Layers 2 + 3).
 
 Every minute:
     1. take the newest W complete minutes of CloudWatch data (ds, y)
@@ -23,6 +23,17 @@ READY, so it may stay in charge until the next raise lands one pc_ready later:
 raises use target_up, the peak over [now + pc_ready, now + 2 pc_ready + step].
 Lowering takes about 12 s, so a lower target is applied at once.
 "every_minute" is the old behaviour, kept for comparison.
+
+Layer 3 (condition c3-layer23): each minute the newest complete CloudWatch
+minute is compared with a forecast for it from a model that had not seen it
+(the window one minute earlier). If that residual is more than
+zscore_anomaly_threshold standard deviations above the recent residuals
+(Layer3), demand is beyond what the forecast expects, so the targets are raised
+to at least what the observed minute needs. It lasts while that minute is
+flagged. Downward anomalies are logged but never lower PC: a lower costs little
+to skip and an under-provisioned minute costs cold starts. The override can
+only be usable about cloudwatch_delay + pc_ready + 1 minutes after a burst
+begins (Run 2026-11-06-2), so it cannot catch a burst shorter than that.
 
 pc_status and pc_allocated are read before each decision (the state it was made
 in); in replay and dry runs they come from SimulatedPC.
@@ -53,15 +64,19 @@ import yaml
 
 from src.controller.capacity_model import CapacityModel
 from src.evaluation.rolling_forecast import CONFIG_PATH, REPO_ROOT
+from src.forecasting.anomaly_detector import ZScoreAnomalyDetector
 from src.forecasting.prophet_baseline import fit_vanilla_prophet
 
 RESULTS_DIR = REPO_ROOT / "results" / "controller"
-FORECAST_FIELD = {"c2": "yhat", "c3-layer2": "yhat_upper"}  # C2 and C3 differ only in this field
+# Forecast field each condition scales to; c3-layer23 adds Layer 3 on top of c3-layer2
+FORECAST_FIELD = {"c2": "yhat", "c3-layer2": "yhat_upper", "c3-layer23": "yhat_upper"}
+LAYER3_CONDITIONS = {"c3-layer23"}
 TICK_OFFSET_S = 5  # decide a few seconds after each minute boundary
 
 
 def plan(history: pd.DataFrame, now: pd.Timestamp, cfg: dict, capacity_model: CapacityModel,
-         field: str, pattern: str, history_start: pd.Timestamp | None = None) -> dict:
+         field: str, pattern: str, history_start: pd.Timestamp | None = None,
+         residual: bool = False) -> dict:
     """
     One decision. Pure: no AWS, no clock. `history` has ds (tz-naive UTC
     minute starts) and y; only rows with ds < now - cloudwatch_delay are used,
@@ -71,6 +86,9 @@ def plan(history: pd.DataFrame, now: pd.Timestamp, cfg: dict, capacity_model: Ca
     fetch lookback (plus the zero-filled gap after it) enters the training
     window: Run 2026-10-16-2's first 10 decisions trained on a smoke test from
     30 minutes before and were off by up to 40%.
+
+    residual=True (Layer 3) also forecasts the newest complete minute from the
+    window one minute earlier, which had not seen it: residual_y, residual_yhat.
     """
     ctl, fc = cfg["controller"], cfg["forecasting"]
     roll = fc["rolling"]
@@ -78,7 +96,8 @@ def plan(history: pd.DataFrame, now: pd.Timestamp, cfg: dict, capacity_model: Ca
     data_end = now - pd.Timedelta(minutes=ctl["cloudwatch_delay_minutes"])
     if history_start is not None:
         history = history[history.ds >= history_start]
-    train = history[history.ds < data_end].tail(window)
+    seen = history[history.ds < data_end]
+    train = seen.tail(window)
 
     row = {"now": now, "n_train": len(train), "last_data": train.ds.max() if len(train) else None}
     if len(train) < window:
@@ -101,6 +120,17 @@ def plan(history: pd.DataFrame, now: pd.Timestamp, cfg: dict, capacity_model: Ca
     )
     fcst = model.predict(horizon)
     short = fcst.iloc[:step + 1]
+    if residual and len(seen) > window:
+        prev = seen.iloc[-window - 1:-1]  # exactly the window of the decision one minute earlier
+        newest = seen.iloc[[-1]]
+        prev_model = fit_vanilla_prophet(
+            prev[["ds", "y"]],
+            interval_width=fc["confidence_interval"],
+            seasonality_period_minutes=cfg["traffic_patterns"][pattern].get("period_minutes"),
+            fourier_order=roll["fourier_order"],
+        )
+        row.update(residual_ds=newest.ds.iloc[0], residual_y=float(newest.y.iloc[0]),
+                   residual_yhat=round(float(prev_model.predict(newest[["ds"]]).yhat.iloc[0]), 1))
     return {
         **row,
         "status": "ok",
@@ -137,6 +167,36 @@ def decide(target, target_up, configured: int, pc_status: str, usable: int,
             return configured, "held"
         return target, "lower"
     return configured, "keep"
+
+
+class Layer3:
+    """
+    Z-score residual override, applied to a plan() row (condition c3-layer23).
+    Each complete minute is scored once, even if CloudWatch is late and the same
+    minute is newest for two ticks.
+    """
+
+    def __init__(self, cfg: dict, capacity_model: CapacityModel):
+        fc = cfg["forecasting"]
+        self.detector = ZScoreAnomalyDetector(window_size=fc["zscore_window_minutes"],
+                                              z_threshold=fc["zscore_anomaly_threshold"],
+                                              min_residuals=fc["zscore_min_residuals"],
+                                              exclude_anomalies=True)
+        self.capacity_model = capacity_model
+        self.last_ds = None
+
+    def apply(self, d: dict) -> dict:
+        if d.get("status") != "ok" or d.get("residual_yhat") is None or d["residual_ds"] == self.last_ds:
+            return d
+        self.last_ds = d["residual_ds"]
+        r = self.detector.update_and_check(d["residual_y"], d["residual_yhat"])
+        d["z_score"], d["anomaly"] = round(r["z_score"], 2), r["is_anomaly"]
+        if r["is_anomaly"] and r["z_score"] > 0:
+            # The forecast is missing demand that is already here: provision at least for it
+            d["override_target"] = self.capacity_model.target(d["residual_y"])
+            d["target"] = max(d["target"], d["override_target"])
+            d["target_up"] = max(d["target_up"], d["override_target"])
+        return d
 
 
 class SimulatedPC:
@@ -191,7 +251,8 @@ class DecisionLog:
 
 # Every key any row can have, so the CSV header is stable whatever the first row's status
 FIELDS = ["now", "status", "n_train", "last_data", "covers_from", "covers_to", "covers_up_to",
-          "steps_ahead", "yhat_max", "yhat_upper_max", "target", "target_up", "pc_status",
+          "steps_ahead", "yhat_max", "yhat_upper_max", "residual_ds", "residual_y", "residual_yhat",
+          "z_score", "anomaly", "override_target", "target", "target_up", "pc_status",
           "pc_allocated", "action", "configured", "applied", "actual_concurrency", "error"]
 
 
@@ -200,10 +261,13 @@ def run_replay(args, cfg, capacity_model, field, log):
     ctl = cfg["controller"]
     step = pd.Timedelta(minutes=cfg["forecasting"]["rolling"]["step_minutes"])
     pc, configured = SimulatedPC(ctl["pc_ready_minutes"]), 0
+    layer3 = Layer3(cfg, capacity_model) if args.condition in LAYER3_CONDITIONS else None
     actual = history.set_index("ds").concurrency if "concurrency" in history else None
     now, rows = history.ds.min(), []
     while now <= history.ds.max():
-        d = plan(history, now, cfg, capacity_model, field, args.pattern)
+        d = plan(history, now, cfg, capacity_model, field, args.pattern, residual=layer3 is not None)
+        if layer3:
+            d = layer3.apply(d)
         d["pc_status"], d["pc_allocated"] = pc.state(now)  # usable this minute
         configured, d["action"] = decide(d.get("target"), d.get("target_up"), configured,
                                          d["pc_status"], d["pc_allocated"], ctl["scale_up_policy"])
@@ -220,6 +284,9 @@ def run_replay(args, cfg, capacity_model, field, log):
     acts = df.action.value_counts().to_dict()
     print(f"replay ({ctl['scale_up_policy']}): {len(df)} ticks, "
           f"{int((df.status == 'warming_up').sum())} warming up, actions {acts}")
+    if layer3:
+        print(f"layer 3: {int(df.get('anomaly', pd.Series(dtype=bool)).eq(True).sum())} flagged minutes, "
+              f"{int(df.get('override_target', pd.Series(dtype=float)).notna().sum())} overrides")
     # Score every minute from the first one PC could be usable until the data ends
     first = df[df.status == "ok"].covers_from.min()
     scored = df[(df.now >= first)].dropna(subset=["actual_concurrency"])
@@ -242,6 +309,7 @@ def run_live(args, cfg, capacity_model, field, log):
     lam = boto3.client("lambda", region_name=region)
     lookback = cfg["forecasting"]["rolling"]["training_window_minutes"] + ctl["cloudwatch_delay_minutes"] + 5
     sim = None if args.apply else SimulatedPC(ctl["pc_ready_minutes"])
+    layer3 = Layer3(cfg, capacity_model) if args.condition in LAYER3_CONDITIONS else None
     configured = 0
     deadline = time.time() + args.minutes * 60
 
@@ -257,7 +325,10 @@ def run_live(args, cfg, capacity_model, field, log):
             row = {"now": now}
             try:
                 history = fetch(wall - timedelta(minutes=lookback), wall, function=fn, alias=alias, region=region)
-                row = plan(history, now, cfg, capacity_model, field, args.pattern, args.history_start)
+                row = plan(history, now, cfg, capacity_model, field, args.pattern, args.history_start,
+                           residual=layer3 is not None)
+                if layer3:
+                    row = layer3.apply(row)
             except SystemExit as e:  # fetch() exits when CloudWatch has no datapoints yet
                 row.update(status="no_data", error=str(e))
 
@@ -279,7 +350,10 @@ def run_live(args, cfg, capacity_model, field, log):
             log.write({k: row.get(k) for k in FIELDS})
             print(f"{now:%H:%M} {row.get('status'):>10}  train={row.get('n_train')}  "
                   f"target={row.get('target')}/{row.get('target_up')}  {row.get('action') or '':>5} "
-                  f"configured={configured}  pc={row.get('pc_status')}:{row.get('pc_allocated')}  {row.get('error') or ''}")
+                  f"configured={configured}  pc={row.get('pc_status')}:{row.get('pc_allocated')}  "
+                  f"{'z=' + str(row['z_score']) if row.get('z_score') is not None else ''}"
+                  f"{' OVERRIDE ' + str(row['override_target']) if row.get('override_target') else ''}  "
+                  f"{row.get('error') or ''}")
 
             next_tick = (wall + timedelta(minutes=1)).timestamp() + TICK_OFFSET_S
             time.sleep(max(0.0, next_tick - time.time()))

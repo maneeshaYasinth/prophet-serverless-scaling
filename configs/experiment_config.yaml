@@ -43,6 +43,9 @@ forecasting:
   retrain_window_hours: 24       # sliding window for adaptive retraining (layer 4)
   confidence_interval: 0.95      # Prophet's default; controls yhat_lower/yhat_upper width
   zscore_anomaly_threshold: 2.0  # layer 3: emergency override trigger
+  zscore_window_minutes: 30      # layer 3: recent one-step-ahead residuals that define "normal" error;
+                                 # half the training window, so it follows drift but holds ~30 points
+  zscore_min_residuals: 10       # layer 3: no flag until this many residuals (a spread from 2-3 is noise)
   # Rolling-origin (walk-forward) evaluation: at each origin t, train on
   # [t - training_window, t) and forecast t+1 .. t+lead_time_minutes.
   rolling:

@@ -1373,3 +1373,52 @@ resolved; details are in the run entries named.
     CloudWatch data, not a reason to change the design after seeing it.
 - Next step: C3-layer23 spiky `--apply` run, same traffic.
 
+
+### Run: 2026-11-06-3
+- Condition: enhanced Prophet, Layers 2 + 3 (C3-layer23: scale to `yhat_upper`, z-score
+  residual override), `--apply`
+- Traffic pattern: spiky, identical to 2026-11-04-1, 2026-11-04-3 and 2026-11-06-1
+  (`SEED=7`, `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`; same 16 spikes), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `ec2361f`, Locust
+  `--processes 2`), run `20261106-0809_spiky_c3-layer23_apply`; fresh version 22;
+  capacity model `ec2_spiky_run1_run2.json`, cap 120, `wait_for_ready`; Layer 3 window
+  30, min residuals 10, threshold 2.0; CloudWatch export (with PC metrics)
+  `data/processed/spiky_c3l23_apply_ec2_run1.csv`. Instance stopped by the scheduled
+  `autostop` at 11:05 UTC; PC none afterwards
+- Duration / sample size: 155 min, 08:09:38-10:45 UTC, 3,209,970 requests, 0 failures
+- Results (C1 = 2026-11-04-1, C2 = 2026-11-04-3, L2 = C3-layer2 2026-11-06-1, L23 = this
+  run; same traffic):
+  - Felt cold starts (> 1 s), PC period (min 65-155): C1 386, C2 407, L2 144, **L23 143**;
+    whole run 566 / 641 / 327 / 361; warm-up (no PC) 180 / 234 / 183 / 218
+  - Per spike in the PC period (C1/C2/L2/L23): 65.0: 76/66/0/1, 82.0: 87/111/56/47,
+    88.3: 0/0/0/0, 96.0: 62/27/0/18, 97.8: 0/0/2/0, 99.6: 0/0/0/0, 131.3: 88/109/43/42,
+    149.4: 72/92/41/35
+  - P95 / P99, PC period: L23 78.3 / 109.7 ms (L2 84.9 / 114.8, C1 54.9 / 68.2); inside
+    spikes 94.9 / 124.7 (L2 101.0 / 130.5, C1 60.5 / 79.1); outside 47.4 / 68.4
+  - PC: configured mean 105.5 (cap 120 reached in 24 minutes), allocated mean 101.7 (L2
+    102.7), usable at most 90; PC at spike onsets 87-111 (L2 85-114); 95% of PC-period
+    requests on provisioned environments, 87,514 spilled (L2 78,410)
+  - Layer 3: 91 minutes scored, 10 flagged (all upward, z 2.2-16.3), 10 overrides. Each
+    flag answers the minute a spike started (82.4, 88.4, 96.4-99.4, 131.4-132.4,
+    149.4-150.4) and is decided 4 min after it (1 + `cloudwatch_delay_minutes`). Of the
+    10 overrides, 7 were "held" (5) or "keep" (2) (PC already at or near the override target, or
+    an allocation still IN_PROGRESS); 3 raised PC (at 92.4, 101.4, 153.4), each after the
+    spike or cluster it answers had ended. No override was usable during a spike
+  - Cost per request (us-east-1 list prices, 128 MB), whole run: C1 $2.16e-7, C2
+    $2.46e-7, L2 $3.02e-7, **L23 $3.01e-7**; PC period $3.65e-7; PC allocation $0.286
+- Notes / anomalies:
+  - Layer 3 changed nothing measurable on spiky traffic: 143 vs 144 felt cold starts in
+    the PC period, same cost, same PC levels. Per-spike differences (96.0: 0 vs 18) are
+    within the session-to-session spread (Known issue 18). This matches the replay
+    prediction of Run 2026-11-06-2, made before the run.
+  - Reason, measured live: a flag needs the spike minute to be complete and published
+    (1 + 3 min), then PC needs ~2 min to become usable, ~6 min in total, while spikes
+    last 1-2 min. With Layer 2 PC already near the cap, an override also rarely has
+    room to raise anything.
+  - In-spike P95 is ~6 ms lower than L2 (94.9 vs 101.0) but still far above C1 (60.5);
+    treat as noise until repeated (Known issue 19).
+  - Warm-up cold starts (no PC, identical for every condition) ranged 180-234 across the
+    four sessions, so session noise alone moves the whole-run total by ~50.
+- Next step: Layer 1 (CloudWatch regressors) and Layer 4 (sliding-window retraining),
+  then full C3; C3 seasonal; steady row; ask the supervisor about a static-PC diagnostic
+  and repeat runs.

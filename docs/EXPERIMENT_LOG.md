@@ -1481,3 +1481,52 @@ resolved; details are in the run entries named.
   - Parameters kept as designed, not tuned on these replays (same principle as Layer 3).
 - Next step: full C3 spiky `--apply` run (`SEED=7 loadgen/run_experiment.sh spiky c3 apply`).
   Expected from replay: fewer PC env-min and more felt cold starts than C3-layer23.
+
+### Run: 2026-11-10-2
+- Condition: full enhanced Prophet (C3 = Layers 1-4: lagged concurrency regressor,
+  `yhat_upper`, z-score override, adaptive window), `--apply`
+- Traffic pattern: spiky, identical to 2026-11-04-1, -04-3, -06-1 and -06-3 (`SEED=7`,
+  `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`; same 16 spikes), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `da2eaf1`, Locust
+  `--processes 2`), run `20261110-0925_spiky_c3_apply`; fresh version 23; capacity model
+  `ec2_spiky_run1_run2.json`, cap 120, `wait_for_ready`; Layer 1 lag 9; Layer 4 parameters
+  as in Run 2026-11-10-1; CloudWatch export (with PC metrics)
+  `data/processed/spiky_c3full_apply_ec2_run1.csv`. Instance stopped by the scheduled
+  `autostop` at 12:20 UTC; PC none afterwards
+- Duration / sample size: 155 min, 09:25:39-12:01 UTC, 3,193,546 requests, 0 failures
+- Results (C1 = 2026-11-04-1, C2 = 2026-11-04-3, L2 = 2026-11-06-1, L23 = 2026-11-06-3,
+  C3 = this run; same traffic):
+  - Felt cold starts (> 1 s), PC period (min 65-155): C1 386, C2 407, L2 144, L23 143,
+    **C3 196** (-49% vs C1, +37% vs L23); whole run 566 / 641 / 327 / 361 / 404; warm-up
+    (no PC) 180 / 234 / 183 / 218 / 208
+  - Per spike in the PC period (C1/C2/L2/L23/C3): 65.0: 76/66/0/1/0,
+    82.0: 87/111/56/47/48, 88.3: 0/0/0/0/0, 96.0: 62/27/0/18/0, 97.8: 0/0/2/0/0,
+    99.6: 0/0/0/0/0, **131.3: 88/109/43/42/101**, 149.4: 72/92/41/35/47
+  - P95 / P99, PC period: C3 90.7 / 119.0 ms (L23 78.3 / 109.7, C1 54.9 / 68.2); inside
+    spikes 107.0 / 138.9 (L23 94.9 / 124.7); outside 46.3 / 70.9
+  - PC: configured mean 96.8 (L23 105.5), allocated mean 92.1 (L23 101.7), minimum 33
+    (L23 81); 93% of PC-period requests on provisioned environments, 119,455 spilled
+    (L23 87,514)
+  - Layer 4: 4 window restarts (decided at minutes 105.4, 115.4, 130.4, 145.4; drift
+    scores +1.20, -1.17, +1.06, -1.01), 49 of 92 decisions on a shortened window, as in
+    the replay (3-4 restarts, 47-49 decisions)
+  - Layer 3: 11 flagged minutes, 9 overrides
+  - Cost per request (us-east-1 list prices, 128 MB), whole run: C1 $2.16e-7, C2
+    $2.46e-7, L2 $3.02e-7, L23 $3.01e-7, **C3 $2.93e-7** (-3% vs L23, +35% vs C1); PC
+    period $3.51e-7; PC allocation $0.259 (L23 $0.286)
+- Notes / anomalies:
+  - The whole difference to L23 is the spike at 131.3 (101 vs 42 felt cold starts, +59;
+    the other spikes sum to -6). Its cause is visible in the decision log: after the
+    restarts at 105.4 and 115.4 the window was 30 min, so from about minute 128 it no
+    longer held the 96-100 spike cluster. Prophet's band narrowed and PC was lowered step
+    by step from 120 (minute 114) to 38 at the spike's onset (L2 and L23: 99). Peak
+    concurrency was 112, usable PC 39, 40,962 invocations spilled in that minute.
+  - This is the mechanism predicted in Run 2026-11-10-1: on spiky traffic Layer 4 reads
+    the after-cluster/before-cluster forecast bias as drift and forgets the spikes that
+    keep `yhat_upper` (Layer 2) high. The +59 at one spike is larger than the
+    session-to-session spread (up to ~35 per spike, Known issue 18) and has a measured
+    cause (PC 38 vs 99 at onset), but it rests on one spike in one run.
+  - Layer 1 cannot be separated in this run; in replay it changed nothing (Run 2026-11-10-1).
+  - In-spike P95 again sits near C2/L2 (~100-107 ms), far above C1 (Known issue 19).
+- Next step: decide with the supervisor how to report the layers (full C3 vs best subset
+  L23); C3 seasonal; steady row; possible static-PC diagnostic and repeat runs.

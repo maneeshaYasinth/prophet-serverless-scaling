@@ -1528,5 +1528,17 @@ resolved; details are in the run entries named.
     cause (PC 38 vs 99 at onset), but it rests on one spike in one run.
   - Layer 1 cannot be separated in this run; in replay it changed nothing (Run 2026-11-10-1).
   - In-spike P95 again sits near C2/L2 (~100-107 ms), far above C1 (Known issue 19).
-- Next step: decide with the supervisor how to report the layers (full C3 vs best subset
-  L23); C3 seasonal; steady row; possible static-PC diagnostic and repeat runs.
+- Reporting decision (student, 2026-11-10; to confirm with the supervisor): report full C3
+  (Layers 1-4) as the C3 cell of the 3x3 design **and** the layer-by-layer results (L2,
+  L23, full C3), so each layer's contribution is visible.
+  - Spiky row: complete for this (C1, C2, L2, L23, C3 live).
+  - Seasonal and steady rows: live C1, C2 and full C3. A layer subset gets its own live
+    run only if a replay of that row's live C3 CloudWatch data with `--layers 2`, `23`
+    and `1234` gives different decisions. Identical decisions on identical traffic mean
+    the live outcome can only differ by session noise. Seasonal replays so far: Layers
+    3 and 4 never fired (Run 2026-11-10-1).
+  - Seasonal C1 (2026-11-03-1) and C2 (2026-11-02-1) ran with one Locust process, so
+    seasonal C3 uses `LOCUST_PROCESSES=1` (seasonal peaks of ~300-400 req/s are far
+    below the ~880 req/s single-process ceiling of Known issue 2).
+- Next step: C3 seasonal `--apply` (`SEED=7 LOCUST_PROCESSES=1`); steady row; possible
+  static-PC diagnostic and repeat runs.

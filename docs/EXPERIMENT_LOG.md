@@ -1422,3 +1422,62 @@ resolved; details are in the run entries named.
 - Next step: Layer 1 (CloudWatch regressors) and Layer 4 (sliding-window retraining),
   then full C3; C3 seasonal; steady row; ask the supervisor about a static-PC diagnostic
   and repeat runs.
+
+### Run: 2026-11-10-1
+- Condition: replay only (no AWS); Layers 1 and 4 implemented, full C3 (`--condition c3`,
+  Layers 1-4) and a layer-by-layer ablation (`--layers`)
+- Data source: CloudWatch exports of C1 spiky runs 1 and 2
+  (`data/processed/spiky_c1_ec2_run{1,2}.csv`) and seasonal C2 dry runs 1-3
+  (`data/processed/seasonal_c2dry_ec2_run{1,2,3}.csv`, 94 min each, 29 scored minutes)
+- Design decisions (with the student, before the replays):
+  - Layer 1: Prophet needs a regressor's value for every forecast minute, and those
+    minutes have no CloudWatch data yet, so a same-minute regressor would leak future
+    data. `ConcurrentExecutions` enters lagged by `regressor_lag_minutes: 9`, equal to the
+    decision's `steps_ahead` (all 92 decisions of Run 2026-11-06-3); `plan()` raises an
+    error if the lag is shorter than steps_ahead. Values are looked up only in data the
+    controller had seen. Duration is not used: it changes environments per request,
+    which the capacity model already covers, not demand
+  - Layer 4: every Prophet condition (C2 too) already refits each minute on a sliding
+    60-min window, so "sliding-window retraining" alone would not separate C3 from C2.
+    Layer 4 makes the window length adaptive: if |median of the newest 10 residuals -
+    mean| > 1.0 x std of normal residuals (Layer 3's window, spikes excluded), the
+    window restarts at the oldest of those 10 minutes (at least 30 min, one seasonal
+    cycle) and grows back to 60 by one minute per minute. `retrain_window_hours: 24`
+    (unused stub value) removed from the config
+  - Condition `c3` = Layers 1-4; `--layers` (replay only) runs any subset on the same data
+- Results (minutes with usable PC below measured concurrency / shortfall env-min /
+  configured env-min):
+
+  | Data | L23 | L123 | L234 | L1234 (full C3) |
+  |---|---|---|---|---|
+  | spiky run 1 | 4/90, 124, 8,289 | 4/90, 124, 8,327 | 5/90, 232, 7,683 | 5/90, 227, 7,658 |
+  | spiky run 2 | 5/89, 77, 9,482 | 6/89, 89, 9,520 | 5/89, 172, 8,662 | 6/89, 179, 8,781 |
+  | seasonal run 1 | 0/29, 0, 440 | same | same | same |
+  | seasonal run 2 | 2/29, 7, 586 | - | - | 2/29, 7, 589 |
+  | seasonal run 3 | 0/29, 0, 577 | 0/29, 0, 579 | 0/29, 0, 577 | 0/29, 0, 579 |
+
+  - Regression check: `c3-layer23` replay on spiky run 2 reproduces Run 2026-11-06-2
+    exactly (5/89, 77 env-min)
+  - Layer 1: no measurable effect on either pattern (configured env-min within 0.5%)
+  - Layer 4: 0 restarts on seasonal; 3-4 restarts per spiky run, 47-49 decisions on a
+    shortened window. Restarts go both ways (drift scores +1.08 to +1.22 and -1.04 to
+    -1.45), just above the 1.0 threshold
+  - Layer 4 on spiky: usable PC falls to 32 (L23: 69-87 minimum), configured env-min
+    -7 to -9%, shortfall roughly doubles (124 -> 232, 77 -> 172)
+- Notes / anomalies:
+  - Why Layer 4 hurts on spiky traffic: the spike process does not change, but after a
+    spike cluster the forecast stays high (negative residuals) and before the next
+    cluster it runs low, so the median test reads "drift". The restarted 30-min window
+    holds fewer spikes, Prophet's band narrows, and `yhat_upper` falls. Layer 2's gain on
+    spiky traffic partly comes from the window *remembering* past spikes (the "echo" of
+    Run 2026-11-04-3); Layer 4 forgets them. Adaptive retraining and confidence-bound
+    scaling pull against each other here.
+  - The false-restart estimate (about once per 100 min) assumed roughly normal residuals;
+    spiky residuals are not, so restarts came every ~25 min.
+  - Neither pattern contains a real level shift (only 20% linear drift), which is what
+    Layer 4 is for; it is never triggered where it could help. A level-shift pattern is
+    outside the 3x3 design (limitation / future work).
+  - Seasonal replays have only 29 scored minutes each, too few to separate layers.
+  - Parameters kept as designed, not tuned on these replays (same principle as Layer 3).
+- Next step: full C3 spiky `--apply` run (`SEED=7 loadgen/run_experiment.sh spiky c3 apply`).
+  Expected from replay: fewer PC env-min and more felt cold starts than C3-layer23.

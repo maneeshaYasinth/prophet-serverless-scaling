@@ -79,6 +79,13 @@ class ZScoreAnomalyDetector:
             "is_anomaly": is_anomaly,
         }
 
+    def normal_spread(self):
+        """(mean, std) of the residuals in the window, or None before min_residuals.
+        With exclude_anomalies this describes normal forecast error (used by Layer 4)."""
+        if len(self._residuals) < self.min_residuals:
+            return None
+        return statistics.mean(self._residuals), statistics.pstdev(self._residuals)
+
     def emergency_target_concurrency(
         self,
         actual,

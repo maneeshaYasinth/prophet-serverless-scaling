@@ -30,6 +30,7 @@ def fit_vanilla_prophet(
     interval_width: float = 0.95,
     seasonality_period_minutes: float | None = None,
     fourier_order: int = 3,
+    regressors: tuple[str, ...] = (),
 ) -> Prophet:
     """
     Fits a plain Prophet model with no regressors or custom layers.
@@ -39,6 +40,9 @@ def fit_vanilla_prophet(
     seasonality_period_minutes swaps them for one custom seasonality of that
     period. This is model configuration, not an enhancement layer: C2 and C3
     get the same seasonality so only the layers differ between them.
+
+    regressors (Layer 1 only, empty for C2): columns of df added as extra
+    regressors; the frame passed to predict() must have them too.
     """
     if seasonality_period_minutes is None:
         model = Prophet(interval_width=interval_width)
@@ -54,6 +58,8 @@ def fit_vanilla_prophet(
             period=seasonality_period_minutes / (24 * 60),  # Prophet periods are in days
             fourier_order=fourier_order,
         )
+    for col in regressors:
+        model.add_regressor(col)
     model.fit(df)
     return model
 

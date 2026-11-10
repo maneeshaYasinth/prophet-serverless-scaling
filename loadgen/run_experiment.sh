@@ -4,7 +4,7 @@
 #   loadgen/run_experiment.sh PATTERN CONDITION MODE [MINUTES]
 #
 #   PATTERN    steady | spiky | seasonal
-#   CONDITION  c1 | c2 | c3-layer2 | c3-layer23 (Layers 2 + 3)
+#   CONDITION  c1 | c2 | c3-layer2 | c3-layer23 (Layers 2 + 3) | c3 (all four layers)
 #   MODE       traffic  (Locust only: use with c1, the reactive baseline)
 #              dryrun   (Locust + controller deciding, Provisioned Concurrency untouched)
 #              apply    (Locust + controller setting Provisioned Concurrency)
@@ -64,8 +64,8 @@ fi
 # Checked after the self-update, so a condition added in a newer commit is known here
 case "$PATTERN" in steady|spiky|seasonal) ;; *) usage ;; esac
 case "$CONDITION/$MODE" in
-  c1/traffic|c2/dryrun|c2/apply|c3-layer2/dryrun|c3-layer2/apply|c3-layer23/dryrun|c3-layer23/apply) ;;
-  *) echo "Invalid CONDITION/MODE: $CONDITION/$MODE (c1 needs traffic; c2, c3-layer2 and c3-layer23 need dryrun or apply)"; exit 1 ;;
+  c1/traffic|c2/dryrun|c2/apply|c3-layer2/dryrun|c3-layer2/apply|c3-layer23/dryrun|c3-layer23/apply|c3/dryrun|c3/apply) ;;
+  *) echo "Invalid CONDITION/MODE: $CONDITION/$MODE (c1 needs traffic; c2, c3-layer2, c3-layer23 and c3 need dryrun or apply)"; exit 1 ;;
 esac
 if tmux has-session 2>/dev/null; then
   echo "A tmux session is already running (tmux ls). Finish or kill it first."; exit 1

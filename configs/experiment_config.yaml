@@ -40,12 +40,29 @@ controller:
 
 forecasting:
   lead_time_minutes: 10         # how far ahead Prophet forecasts before a scaling action
-  retrain_window_hours: 24       # sliding window for adaptive retraining (layer 4)
   confidence_interval: 0.95      # Prophet's default; controls yhat_lower/yhat_upper width
   zscore_anomaly_threshold: 2.0  # layer 3: emergency override trigger
   zscore_window_minutes: 30      # layer 3: recent one-step-ahead residuals that define "normal" error;
                                  # half the training window, so it follows drift but holds ~30 points
   zscore_min_residuals: 10       # layer 3: no flag until this many residuals (a spread from 2-3 is noise)
+  # Layer 1: CloudWatch signals as Prophet regressors. Prophet needs a regressor's value for every
+  # minute it forecasts, and those minutes have no CloudWatch data yet, so each signal enters lagged:
+  # the value for minute t is the one measured at t - regressor_lag_minutes. The lag must be at least
+  # the decision's steps_ahead (9 = 1 + cloudwatch_delay 3 + pc_ready 2 + step 1 + pc_ready 2 for
+  # wait_for_ready), otherwise the forecast would need data from the future; plan() checks this
+  layer1_regressors: ["concurrency"]   # ConcurrentExecutions (max per minute), cloudwatch_fetch.py
+  regressor_lag_minutes: 9
+  # Layer 4: adaptive retraining window. Every Prophet condition already refits each minute on the
+  # newest training_window_minutes (a sliding window), so Layer 4 changes the window's *length*:
+  # when the forecast has been biased for most of the last drift_check_minutes, the traffic has
+  # changed, and minutes from before the change mislead the fit. The window then restarts just
+  # before the change (never shorter than adaptive_min_window_minutes) and grows back by one minute
+  # per minute to training_window_minutes
+  drift_check_minutes: 10        # median of this many newest residuals; a median ignores 1-3 spike minutes
+  drift_threshold: 1.0           # drift if |median - mean| > this x std of normal residuals (Layer 3's).
+                                 # Without drift the median of 10 has a std of ~0.4 std, so 1.0 is ~2.5 of
+                                 # its own std: a false restart about once per 100 minutes
+  adaptive_min_window_minutes: 30  # one full 30-min seasonal cycle, the least Prophet can fit it from
   # Rolling-origin (walk-forward) evaluation: at each origin t, train on
   # [t - training_window, t) and forecast t+1 .. t+lead_time_minutes.
   rolling:

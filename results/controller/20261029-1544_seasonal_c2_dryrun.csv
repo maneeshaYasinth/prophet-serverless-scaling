@@ -1,0 +1,5 @@
+now,status,n_train,last_data,covers_from,covers_to,steps_ahead,yhat_max,yhat_upper_max,target,applied,pc_status,pc_allocated,actual_peak_concurrency,error
+2026-10-29 15:44:00,no_data,,,,,,,,,,,,,No datapoints returned - check the time window and alias.
+2026-10-29 15:45:00,warming_up,0,,,,,,,,,,,,
+2026-10-29 15:46:00,warming_up,0,,,,,,,,,,,,
+2026-10-29 15:47:00,warming_up,0,,,,,,,,,,,,

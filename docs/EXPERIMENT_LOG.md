@@ -1542,3 +1542,76 @@ resolved; details are in the run entries named.
     below the ~880 req/s single-process ceiling of Known issue 2).
 - Next step: C3 seasonal `--apply` (`SEED=7 LOCUST_PROCESSES=1`); steady row; possible
   static-PC diagnostic and repeat runs.
+
+### Run: 2026-11-10-3
+- Condition: full enhanced Prophet (C3 = Layers 1-4), `--apply`; then replay ablation of
+  this run's CloudWatch data (`--layers 2`, `23`, `1234`), the Option B check
+- Traffic pattern: seasonal, identical to 2026-11-02-1 and 2026-11-03-1 (`SEED=7`,
+  `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `e228ce7`, Locust
+  `LOCUST_PROCESSES=1` as in seasonal C1/C2), run `20261110-1401_seasonal_c3_apply`;
+  fresh version 25; capacity model `ec2_pooled_run1_run2.json` (seasonal, x 1.26), cap
+  120, `wait_for_ready`; Layer 1 lag 9; Layer 3/4 parameters as in 2026-11-10-1.
+  CloudWatch export (with PC metrics) `data/processed/seasonal_c3full_apply_ec2_run1.csv`
+  (fetched 2026-11-12). PC none after the run
+- Duration / sample size: 155 min, 14:01:25-16:36 UTC, 2,073,601 requests, 0 failures
+- Results (C1 = 2026-11-03-1, C2 = 2026-11-02-1, C3 = this run; same traffic):
+
+  | Period | Condition | P95 / P99 (ms) | P99.9 (ms) | Felt cold starts (> 1 s) | On-demand inits | Billed mean (ms) |
+  |---|---|---|---|---|---|---|
+  | Warm-up 0-63 (no PC) | C1 | 46.2 / 50.4 | 76.2 | 23 | 58 | 6.81 |
+  | | C2 | 45.5 / 48.4 | 70.4 | 33 | 56 | 6.51 |
+  | | C3 | 45.7 / 48.9 | 82.3 | 20 | 84 | 6.58 |
+  | Decisions 65-155 | C1 | 46.5 / 50.8 | 83.9 | 3 | 75 | 6.72 |
+  | | C2 | 45.0 / 47.8 | 67.3 | 8 | 24 | 5.55 |
+  | | C3 | 45.3 / 48.9 | 80.2 | **6** | 27 | 5.55 |
+
+  - Felt cold starts in minutes 65-155: 3 at minute 95.1 (the first peak after warm-up,
+    where C2 also had 5), 1 each at 122.1, 147.1, 150.1; all on-demand inits
+  - PC: configured mean 19.8 (C2 17.3), 1,819 env-min (C2 1,595, +14%); 78.5% of
+    PC-period invocations on provisioned environments (C2 70.7%), 261,726 spilled (C2
+    358,226); peak concurrency 41
+  - Cost per request, minutes 65-155 (us-east-1 list prices, 128 MB, same method as
+    2026-11-03-1, which it reproduces for C2): C1 $2.14e-7, C2 $2.49e-7, **C3 $2.54e-7**
+    (+19% vs C1, +2% vs C2); PC allocation $0.057 (C2 $0.050)
+  - Layer 3: 14 flagged minutes (9 upward, z 2.0-3.8; 5 downward, logged only), 9
+    overrides; the override set the target in 5 minutes (99.6, 102.6, 103.6, 108.6, 136.6)
+  - Layer 4: 1 window restart (decided at minute 104.6, drift score +1.12), 49 of 92
+    decisions on a shortened window
+- Replay ablation (this run's CloudWatch data, `--history-start 2026-11-10T14:02`):
+
+  | Layers | Configured env-min | Minutes usable PC < concurrency | Shortfall env-min |
+  |---|---|---|---|
+  | 2 | 1,781 | 45/91 | 235 |
+  | 2+3 | 1,812 | 45/91 | 227 |
+  | 1-4 (replays the live run) | 1,820 | 42/91 | 226 |
+
+  - Fidelity: the L1234 replay reproduces the live run (same restart at 15:33, 14 flags /
+    9 overrides, target within 1 environment in 86 of 92 decisions, 1,820 vs 1,819
+    env-min)
+  - Decisions are not identical: L2 vs L23 differ in 13 of 93 minutes, L2 vs L1234 in 36
+    (by up to 10 environments), but total capacity differs by at most 2.2% and shortfall
+    minutes are about equal
+- Notes / anomalies:
+  - C3 did not reduce felt cold starts on seasonal traffic: 6 vs C1 3 and C2 8, all
+    within the session-to-session spread (warm-ups 20-33, Known issue 18). Seasonal row
+    result: proactive PC buys ~1-3 ms of P99 at most and costs +16-19% per request.
+  - Layers 3 and 4 **did** fire on seasonal live, although the seasonal replays of
+    2026-11-10-1 showed none. Those replays had only 29 scored minutes (94-min dry runs);
+    this run has 91. With 10% noise and 20% drift, residuals beyond 2 sigma and a
+    10-minute median bias above 1.0 sigma occur by chance over 91 minutes. The earlier
+    statement "Layers 3 and 4 never fire on seasonal" is withdrawn.
+  - Calibration drift (Known issue 7): measured concurrency per req/s in minutes 65-155
+    was 0.065 (C2), 0.075 (C1) and 0.088 (C3), against the calibration's ~0.067 with
+    margin. In this session concurrency exceeded the calibrated target in 77 of 90
+    minutes (C1 session 43, C2 session 23), so the replay shortfall (42-45/91) is mostly
+    drift, not forecast error. Felt cold starts stayed low because the excess was served
+    by warm on-demand environments. Relevant to the steady row, which also uses the
+    seasonal calibration.
+- Option B decision needed (student / supervisor): the rule was "a layer subset gets a
+  live run only if replay gives different decisions". Decisions differ in 13-36 minutes,
+  but by at most 2.2% capacity with equal shortfall, and felt cold-start counts on this
+  pattern (3-8) cannot resolve a difference that small. Suggested: no live subset runs
+  for seasonal; report the replay table above as the seasonal ablation.
+- Next step: decide the seasonal ablation; steady row (C1, C2, C3); consider recalibrating
+  from the live 60-minute window (Known issue 7) before steady.

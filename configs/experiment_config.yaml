@@ -37,6 +37,13 @@ controller:
   # and 2026-11-04-1 (src/evaluation/warm_minutes.py); used by both C2 and C3
   calibration_file_by_pattern:
     spiky: "results/capacity_calibration/ec2_spiky_run1_run2.json"
+  # Layer 5 (c3v2): stabilised scale-down (Analysis 2026-11-12-1). A lower goes only to the highest
+  # target of the last N decisions, and is skipped if smaller than the fraction below.
+  scale_down_stabilization_minutes: 5   # Kubernetes HPA's default scale-down stabilisation (300 s); longer
+                                        # than the ~1 min between a trim and the spike onsets it preceded
+  scale_down_min_step_fraction: 0.10    # trims in the spiky runs were median 3-5 environments at 85-100
+                                        # configured (3-6%), so 10% removes them but still lets PC fall
+                                        # after a spike cluster (drops of 20-80 environments)
 
 forecasting:
   lead_time_minutes: 10         # how far ahead Prophet forecasts before a scaling action
@@ -63,6 +70,11 @@ forecasting:
                                  # Without drift the median of 10 has a std of ~0.4 std, so 1.0 is ~2.5 of
                                  # its own std: a false restart about once per 100 minutes
   adaptive_min_window_minutes: 30  # one full 30-min seasonal cycle, the least Prophet can fit it from
+  layer4_variants:
+    v1: {exclude_anomalies: false, direction: "both"}  # as run in 2026-11-10-2 and -3 (condition c3)
+    v2: {exclude_anomalies: true, direction: "up"}     # c3v2: Layer 3's flagged minutes are bursts, not
+                                                       # level shifts; an over-forecast costs money, not
+                                                       # cold starts (Analysis 2026-11-12-1)
   # Rolling-origin (walk-forward) evaluation: at each origin t, train on
   # [t - training_window, t) and forecast t+1 .. t+lead_time_minutes.
   rolling:

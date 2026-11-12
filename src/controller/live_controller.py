@@ -48,6 +48,22 @@ drift_check_minutes residuals sits more than drift_threshold normal-error stds
 from the mean, the forecast has been biased for most of those minutes: traffic
 has changed. The window then restarts just before the change (at least
 adaptive_min_window_minutes) and grows back to training_window_minutes.
+Two variants (forecasting.layer4_variants): v1 as run in 2026-11-10-2 / -3 (all
+residuals, both directions); v2 for c3v2 (Analysis 2026-11-12-1) leaves out the
+minutes Layer 3 flags, because a spike is not a level shift, and restarts only on
+upward drift (under-forecasting). On spiky traffic v1 restarted on spike residuals
+and on the over-forecast after a spike cluster; each restart forgot the earlier
+spikes, the yhat_upper band narrowed and PC fell to 38 before the spike at 131.
+An over-forecast costs money, not cold starts, so v2 leaves it to the sliding window,
+the same asymmetry as Layer 3.
+
+Layer 5 (condition c3v2): stabilised scale-down. PC is lowered only to the highest
+target of the last scale_down_stabilization_minutes decisions, and only when that
+is at least scale_down_min_step_fraction below the configured value. In the spiky
+runs the controller trimmed PC by 3-5 environments about every other minute, and
+every spike that met spare PC but still had on-demand cold starts came within about
+a minute of such a trim (Analysis 2026-11-12-1, hypothesis). This is the
+scale-down stabilisation window that Kubernetes' HPA uses. Raises are unchanged.
 
 pc_status and pc_allocated are read before each decision (the state it was made
 in); in replay and dry runs they come from SimulatedPC.
@@ -87,7 +103,9 @@ from src.forecasting.prophet_baseline import fit_vanilla_prophet
 
 RESULTS_DIR = REPO_ROOT / "results" / "controller"
 # Enhancement layers each condition uses (C2 = none). Layer 2 = scale to yhat_upper
-CONDITION_LAYERS = {"c2": "", "c3-layer2": "2", "c3-layer23": "23", "c3": "1234"}
+# Layer 5 = stabilised scale-down. c3v2 = C3 after Analysis 2026-11-12-1 (Layer 4 v2 + Layer 5)
+CONDITION_LAYERS = {"c2": "", "c3-layer2": "2", "c3-layer23": "23", "c3": "1234", "c3v2": "12345"}
+CONDITION_LAYER4 = {"c3v2": "v2"}  # every other condition with Layer 4 uses v1
 TICK_OFFSET_S = 5  # decide a few seconds after each minute boundary
 
 
@@ -190,12 +208,13 @@ def add_lagged(frame: pd.DataFrame, seen: pd.DataFrame, columns, lag: int) -> pd
 
 
 def decide(target, target_up, configured: int, pc_status: str, usable: int,
-           policy: str) -> tuple[int, str | None]:
+           policy: str, min_lower_fraction: float = 0.0) -> tuple[int, str | None]:
     """
     The scaling rule. Pure. Returns (PC to configure, action), action one of
     raise / lower / keep / held (a change wanted, but a put would restart the
-    allocation still IN_PROGRESS), or set (every_minute policy); None when there
-    is no target yet. usable = environments already allocated.
+    allocation still IN_PROGRESS), damped (a lower smaller than
+    min_lower_fraction of configured, skipped; Layer 5), or set (every_minute
+    policy); None when there is no target yet. usable = environments already allocated.
     """
     if target is None:
         return configured, None
@@ -209,6 +228,8 @@ def decide(target, target_up, configured: int, pc_status: str, usable: int,
         # Mid-raise, a value still above what is usable is a new raise and restarts it
         if pc_status == "IN_PROGRESS" and target > usable:
             return configured, "held"
+        if configured - target < min_lower_fraction * configured:
+            return configured, "damped"
         return target, "lower"
     return configured, "keep"
 
@@ -254,8 +275,12 @@ class Layer4:
     restarts at the oldest of those residuals and grows back by one minute per minute.
     """
 
-    def __init__(self, cfg: dict, layer3: Layer3):
+    def __init__(self, cfg: dict, layer3: Layer3, variant: str = "v1"):
         fc = cfg["forecasting"]
+        v = fc["layer4_variants"][variant]
+        self.variant = variant
+        self.exclude_anomalies = v["exclude_anomalies"]
+        self.directions = {"both": (1, -1), "up": (1,)}[v["direction"]]
         self.long = fc["rolling"]["training_window_minutes"]
         self.shortest = fc["adaptive_min_window_minutes"]
         self.threshold = fc["drift_threshold"]
@@ -278,16 +303,41 @@ class Layer4:
         """Call after Layer3.apply; acts only on a minute Layer 3 scored this tick."""
         if d.get("z_score") is None:
             return d
+        if self.exclude_anomalies and d.get("anomaly"):
+            return d  # v2: a minute Layer 3 flags is a burst, not evidence of a level shift
         self.recent.append((d["residual_ds"], d["residual_y"] - d["residual_yhat"]))
         spread = self.detector.normal_spread()
         if len(self.recent) < self.recent.maxlen or spread is None or spread[1] == 0:
             return d
         score = (statistics.median(r for _, r in self.recent) - spread[0]) / spread[1]
         d["drift_score"] = round(score, 2)
-        if abs(score) > self.threshold:
+        if any(sign * score > self.threshold for sign in self.directions):
             self.change_start = pd.Timestamp(self.recent[0][0])
             d["window_restart"] = self.change_start
             self.recent.clear()  # the next check needs residuals from after the restart
+        return d
+
+
+class Layer5:
+    """
+    Stabilised scale-down: the target a lower may go to is the highest target of the
+    last scale_down_stabilization_minutes decisions (this one included), so PC follows a
+    falling forecast only once it has stayed down. decide() then skips lowers smaller
+    than scale_down_min_step_fraction of the configured PC. Raises use target_up and
+    are not touched.
+    """
+
+    def __init__(self, cfg: dict):
+        ctl = cfg["controller"]
+        self.recent = deque(maxlen=ctl["scale_down_stabilization_minutes"])
+        self.min_lower_fraction = ctl["scale_down_min_step_fraction"]
+
+    def apply(self, d: dict) -> dict:
+        if d.get("target") is None:
+            return d
+        self.recent.append(d["target"])
+        d["target_forecast"] = d["target"]
+        d["target"] = max(self.recent)
         return d
 
 
@@ -344,20 +394,22 @@ class DecisionLog:
 # Every key any row can have, so the CSV header is stable whatever the first row's status
 FIELDS = ["now", "status", "n_train", "last_data", "covers_from", "covers_to", "covers_up_to",
           "steps_ahead", "yhat_max", "yhat_upper_max", "residual_ds", "residual_y", "residual_yhat",
-          "z_score", "anomaly", "override_target", "drift_score", "window_restart", "target", "target_up", "pc_status",
+          "z_score", "anomaly", "override_target", "drift_score", "window_restart", "target_forecast", "target", "target_up", "pc_status",
           "pc_allocated", "action", "configured", "applied", "actual_concurrency", "error"]
 
 
 class Layers:
     """The enhancement layers a run uses, applied around each plan() call."""
 
-    def __init__(self, layers: str, cfg: dict, capacity_model: CapacityModel):
+    def __init__(self, layers: str, cfg: dict, capacity_model: CapacityModel, layer4_variant: str = "v1"):
         self.field = "yhat_upper" if "2" in layers else "yhat"
         self.regressors = tuple(cfg["forecasting"]["layer1_regressors"]) if "1" in layers else ()
         # Layer 4 needs Layer 3's residuals even when the override itself is off
         self.layer3 = (Layer3(cfg, capacity_model, override="3" in layers)
                        if "3" in layers or "4" in layers else None)
-        self.layer4 = Layer4(cfg, self.layer3) if "4" in layers else None
+        self.layer4 = Layer4(cfg, self.layer3, layer4_variant) if "4" in layers else None
+        self.layer5 = Layer5(cfg) if "5" in layers else None
+        self.min_lower_fraction = self.layer5.min_lower_fraction if self.layer5 else 0.0
 
     def plan(self, history, now, cfg, capacity_model, pattern, history_start=None) -> dict:
         window = self.layer4.window(now) if self.layer4 else None
@@ -370,6 +422,8 @@ class Layers:
             d = self.layer3.apply(d)
         if self.layer4:
             d = self.layer4.update(d)
+        if self.layer5:
+            d = self.layer5.apply(d)  # after Layer 3, so an override is held for the window too
         return d
 
 
@@ -384,7 +438,8 @@ def run_replay(args, cfg, capacity_model, layers, log):
         d = layers.plan(history, now, cfg, capacity_model, args.pattern)
         d["pc_status"], d["pc_allocated"] = pc.state(now)  # usable this minute
         configured, d["action"] = decide(d.get("target"), d.get("target_up"), configured,
-                                         d["pc_status"], d["pc_allocated"], ctl["scale_up_policy"])
+                                         d["pc_status"], d["pc_allocated"], ctl["scale_up_policy"],
+                                         layers.min_lower_fraction)
         if d["action"] in ("raise", "lower", "set"):
             pc.set(configured, now)
         d["configured"] = configured
@@ -451,7 +506,8 @@ def run_live(args, cfg, capacity_model, layers, log):
 
             row["pc_status"], row["pc_allocated"] = read_pc(lam, fn, alias) if args.apply else sim.state(now)
             new, row["action"] = decide(row.get("target"), row.get("target_up"), configured,
-                                        row["pc_status"], row["pc_allocated"], ctl["scale_up_policy"])
+                                        row["pc_status"], row["pc_allocated"], ctl["scale_up_policy"],
+                                        layers.min_lower_fraction)
             if row["action"] in ("raise", "lower", "set"):
                 if args.apply:
                     try:
@@ -519,13 +575,17 @@ def main():
     p.add_argument("--run-name", help="decision log file name (default: timestamp_condition_pattern_mode)")
     p.add_argument("--layers", help="replay only: override the condition's layers, e.g. 123 "
                    "(layer-by-layer ablation on the same data)")
+    p.add_argument("--layer4", choices=["v1", "v2"],
+                   help="replay only: override the condition's Layer 4 variant")
     p.add_argument("--history-start", type=pd.Timestamp,
                    help="UTC minute (e.g. 2026-10-16T19:08); ignore CloudWatch data before it")
     args = p.parse_args()
     if args.apply and args.replay:
         p.error("--apply cannot be combined with --replay")
-    if args.layers is not None and (not args.replay or set(args.layers) - set("1234")):
-        p.error("--layers takes digits 1-4 and works only with --replay")
+    if args.layers is not None and (not args.replay or set(args.layers) - set("12345")):
+        p.error("--layers takes digits 1-5 and works only with --replay")
+    if args.layer4 is not None and not args.replay:
+        p.error("--layer4 works only with --replay")
 
     cfg = yaml.safe_load(CONFIG_PATH.read_text())
     ctl = cfg["controller"]
@@ -546,8 +606,10 @@ def main():
     run_name = args.run_name or f"{datetime.now():%Y%m%d-%H%M}_{args.condition}_{args.pattern}_{mode}"
     log = DecisionLog(RESULTS_DIR / f"{run_name}.csv")
     layer_set = CONDITION_LAYERS[args.condition] if args.layers is None else args.layers
-    print(f"Layers: {', '.join(layer_set) or 'none (vanilla Prophet)'}")
-    layers = Layers(layer_set, cfg, capacity_model)
+    layer4_variant = args.layer4 or CONDITION_LAYER4.get(args.condition, "v1")
+    print(f"Layers: {', '.join(layer_set) or 'none (vanilla Prophet)'}"
+          f"{f' (Layer 4 {layer4_variant})' if '4' in layer_set else ''}")
+    layers = Layers(layer_set, cfg, capacity_model, layer4_variant)
     try:
         if args.replay:
             run_replay(args, cfg, capacity_model, layers, log)

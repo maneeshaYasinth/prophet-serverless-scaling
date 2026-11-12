@@ -1662,3 +1662,54 @@ resolved; details are in the run entries named.
      these logs). Tests the hypothesis above; standard scale-in cooldown practice.
   3. One live C3 v2 run on spiky `SEED=7` (C1/C2 stay comparable), then confirm on a
      second seed with a C1 run on the same seed, to rule out tuning to one spike schedule.
+
+### Replay: 2026-11-12-2 (C3 v2 check, no AWS)
+- Code: `live_controller.py` adds condition `c3v2` = Layers 1, 2, 3, 4 (v2), 5.
+  - Layer 4 v2 (`forecasting.layer4_variants.v2`): minutes Layer 3 flags are left out of
+    the drift check; restarts only on upward drift. `c3` keeps v1, so earlier runs
+    replay unchanged.
+  - Layer 5 (`controller.scale_down_stabilization_minutes: 5`,
+    `scale_down_min_step_fraction: 0.10`): a lower goes only to the highest target of
+    the last 5 decisions and is skipped (`damped`) when under 10% of configured.
+  - `--layer4 v1|v2` and `--layers` digit 5 for replay ablations; `run_experiment.sh`
+    accepts `c3v2`.
+- Why Layer 4 restarted in 2026-11-10-2 (decision log): minute 105.4, drift +1.20, with
+  the four spike residuals of minutes 96-99 (z 2.0-4.3) inside the 10-minute median;
+  minute 115.4, drift -1.17, the over-forecast after the spike cluster. Each restart
+  cut the window to 30 min and the band narrowed (PC 38 at spike 131.35).
+- Data: `data/processed/spiky_c3full_apply_ec2_run1.csv`, `--history-start
+  2026-11-10T09:26`; seasonal: `seasonal_c3full_apply_ec2_run1.csv`, `2026-11-10T14:02`.
+  Decision logs `results/controller/replay_spiky_c3live_{c3v1,L23,L4v2,L235,c3v2}.csv`,
+  `replay_seasonal_c3live_c3v2.csv`.
+- Results (spiky, minutes 65-155; usable PC at spike onset, (L) = a lower in the 1.5 min
+  before onset):
+
+  | Onset (min) | Peak conc. (live) | c3 v1 | L23 | L1234 v2 | L235 | c3v2 |
+  |---|---|---|---|---|---|---|
+  | 81.99 | 77 | 93 (L) | 93 (L) | 93 (L) | 109 | 111 |
+  | 88.30 | 69 | 95 | 93 | 95 | 97 | 96 |
+  | 96.00 | 64 | 109 | 109 | 109 | 120 | 120 |
+  | 97.75 | 79 | 110 | 109 (L) | 110 | 120 | 120 |
+  | 99.59 | 81 | 108 (L) | 107 (L) | 108 (L) | 120 | 120 |
+  | 131.35 | 112 | **39** | 98 (L) | 98 (L) | 107 | **108** |
+  | 149.37 | 76 | 83 (L) | 85 (L) | 83 (L) | 91 (L) | 89 |
+  | Window restarts | | 4 | - | 1 (min ~120) | - | 1 |
+  | Lowers / damped | | 38 / 0 | 29 / 0 | 33 / 0 | 5 / 25 | 4 / 32 |
+  | Shortfall env-min | | 100 | 14 | 14 | 5 | 4 |
+  | PC configured env-min | | 8,696 | 9,502 | 9,391 | 10,129 | 10,110 |
+
+  - Fidelity: the v1 replay reproduces the live run's four restarts at the same minutes.
+  - Layer 4 v2 alone removes the restarts at 105 and 115 and holds PC 98 at spike 131
+    (v1 39). Layer 5 removes every lower before a spike onset except one at 149 (L235
+    only), at +6% configured PC vs L23 and +16% vs v1.
+  - Seasonal c3v2 vs v1 (L1234 replay of 2026-11-10-3): configured 2,079 vs 1,820
+    env-min (+14%), shortfall 121 vs 226 env-min, short minutes 25/91 vs 42/91; 0 window
+    restarts (v1 1); lowers 10 + 16 damped vs 32.
+- Notes / anomalies:
+  - Replay can show that PC is higher and no longer trimmed before onsets; it cannot show
+    whether that removes the spillover-with-spare-PC cold starts (hypothesis of Analysis
+    2026-11-12-1). Only a live run can.
+  - The L1234 v2 replay has a 2-minute dip of usable PC to 33 at minute 135 (simulator
+    state during a raise to 120); not at a spike onset, absent with Layer 5.
+- Next step: live spiky c3v2 run (`SEED=7`), then confirm on a second seed with C1 on
+  the same seed. Needs the student's go-ahead (PC billed during the run).

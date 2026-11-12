@@ -1713,3 +1713,61 @@ resolved; details are in the run entries named.
     state during a raise to 120); not at a spike onset, absent with Layer 5.
 - Next step: live spiky c3v2 run (`SEED=7`), then confirm on a second seed with C1 on
   the same seed. Needs the student's go-ahead (PC billed during the run).
+
+### Run: 2026-11-12-3
+- Condition: C3 v2 (`c3v2` = Layers 1, 2, 3, Layer 4 v2, Layer 5), `--apply`
+- Traffic pattern: spiky, identical to 2026-11-04-1, -04-3, -06-1, -06-3 and -10-2
+  (`SEED=7`, `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `ab5a039`,
+  `LOCUST_PROCESSES=2`), run `20261112-0732_spiky_c3v2_apply`; fresh version 26;
+  capacity model `ec2_spiky_run1_run2.json` (x 1.44), cap 120, `wait_for_ready`; Layer 4
+  v2; Layer 5 stabilisation 5 min, min step 10%. CloudWatch export (with PC metrics)
+  `data/processed/spiky_c3v2_apply_ec2_run1.csv`. PC none after the run; instance stopped
+- Duration / sample size: 155 min, 07:33:05-10:08 UTC, 3,210,409 requests, 0 failures
+- Results (C1 = 2026-11-04-1, C2 = -04-3, L2 = -06-1, L23 = -06-3, C3 v1 = -10-2; same
+  traffic), PC period (min 65-155) unless stated:
+
+  | | C1 | C2 | L2 | L23 | C3 v1 | **C3 v2** |
+  |---|---|---|---|---|---|---|
+  | Felt cold starts (> 1 s) | 386 | 407 | 144 | 143 | 196 | **101** |
+  | Warm-up control, min 0-63 (no PC) | 180 | 234 | 183 | 218 | 208 | 158 |
+  | P95 / P99 (ms) | 54.9 / 68.2 | 86.3 / 113.5 | 84.9 / 114.8 | 78.3 / 109.7 | 90.7 / 119.0 | 81.0 / 111.4 |
+  | P95 / P99 inside spikes (ms) | 60.5 / 79.1 | 102.5 / 131.7 | 101.0 / 130.5 | 94.9 / 124.7 | 107.0 / 138.9 | 97.1 / 127.9 |
+  | P95 / P99 outside spikes (ms) | 46.0 / 55.3 | 46.4 / 66.1 | 46.9 / 66.6 | 47.4 / 68.4 | 46.3 / 70.9 | 46.4 / 69.0 |
+  | Allocated PC, mean | 0 | 37.7 | 102.7 | 101.7 | 92.1 | 109.5 (min 86) |
+  | Spilled to on-demand | all | 468,946 | 78,410 | 87,514 | 119,455 | 44,635 (97.5% on PC) |
+  | PC allocation cost | - | $0.106 | $0.289 | $0.286 | $0.259 | $0.308 |
+  | Cost per request, whole run | $2.16e-7 | $2.46e-7 | $3.02e-7 | $3.01e-7 | $2.93e-7 | $3.07e-7 (+42% vs C1) |
+
+  - Per spike (C1 / L23 / C3 v1 / C3 v2): 65.0: 76/1/0/0, 82.0: 87/47/48/**24**,
+    88.3: 0/0/0/0, 96.0: 62/18/0/16, 97.8: 0/0/0/0, 99.6: 0/0/0/0,
+    131.3: 88/42/101/**26**, 149.4: 72/35/47/**33**; 2 felt outside spikes
+  - Controller: 46 keep, 27 damped, 9 raise, 7 held, 4 lower; Layer 3 12 flags / 12
+    overrides; Layer 4 v2 1 restart (decided 09:34, minute ~121)
+  - PC at onset vs peak concurrency: 82.0: 106 vs 68 (READY, no lower for 3+ min, damped
+    each minute); 96.0: 116, raise to 119 IN_PROGRESS, vs 86; 131.3: 120, a lower to 107
+    sent 0.4 min before onset, vs 64; 149.4: 92 vs 80 (READY, damped for 3+ min)
+  - Cost method checked by reproducing logged C3 v1 ($0.259, $2.92e-7) and L23 ($0.286,
+    $3.01e-7): allocation on allocated PC over minutes 65-155
+- Notes / anomalies:
+  - Target met on spiky: C3 v2 has 74% fewer felt cold starts than C1 and 75% fewer than
+    C2, far beyond the session spread, at +42% cost per request (+2% vs L23).
+  - Layer 4 fix confirmed: spike 131.3 had 26 felt cold starts (C3 v1 101) with PC
+    107-120 at onset (v1 39). The single v2 restart did not lower PC before a spike.
+  - Layer 5 hypothesis (Analysis 2026-11-12-1) **not supported**: spikes 82.0 and 149.4
+    still had 24 and 33 on-demand cold starts with PC READY above peak concurrency and no
+    lower for 3+ minutes. Spillover with spare PC does not need a recent trim. Spikes
+    that hit it are the ones after 8-31 minutes of base load (82.0, 96.0, 131.3,
+    149.4); the first spike (65.0, PC just allocated) and spikes within ~6 min of the
+    previous one have none. Cause unknown (Lambda routing; not controllable from PC).
+  - Session effect: this warm-up had 158 felt cold starts, the lowest of six spiky
+    sessions (180-234). PC-period felt / warm-up felt: C1 2.14, C2 1.74, L2 0.79, L23
+    0.66, C3 v1 0.94, C3 v2 0.64. So C3 v2 vs L23 (101 vs 143) is within session noise;
+    C3 v2 vs C1/C2 and vs C3 v1 at spike 131 are not.
+  - Layer 5 cost: +7.7 allocated PC on average vs L23; spilled invocations halved (44,635
+    vs 87,514), but felt cold starts per spike only lower at 82.0.
+  - Tail latency: P95/P99 still well above C1 inside spikes (Known issue 19), slightly
+    better than C3 v1 and close to L23.
+- Next step: second seed (C1 and C3 v2) to confirm the result is not tied to the
+  `SEED=7` spike schedule; decide with the supervisor whether Layer 5 stays (its
+  mechanism is not confirmed, its cost is +2% per request vs L23).

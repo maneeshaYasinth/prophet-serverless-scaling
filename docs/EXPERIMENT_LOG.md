@@ -1787,3 +1787,28 @@ resolved; details are in the run entries named.
   65-155) has as many spikes as seed 7 (8). Seed 8 has 4; **seed 9** has 8 (70.8, 77.5,
   84.8, 90.3, 103.2, 107.6, 110.9, 137.4). Runs: C1 and C3 v3 on `SEED=9`; C2 optional.
   Known limit: the spiky capacity calibration was fitted on `SEED=7` C1 runs.
+
+### Run: 2026-11-12-5
+- Condition: C1 reactive baseline (no PC), `traffic`
+- Traffic pattern: spiky, **`SEED=9`** (held-out schedule, rule in 2026-11-12-4),
+  `USER_RPS=10`, `NOISE_PCT=10`, `DRIFT_PCT=20`, 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `785bb3e`,
+  `LOCUST_PROCESSES=2`), run `20261112-1122_spiky_c1_traffic`; fresh version 27
+- Duration / sample size: 155 min, 11:22:11-13:57 UTC, 3,203,331 requests, 0 failures
+- Results:
+  - Felt cold starts (> 1 s): warm-up (min 0-63) 291, PC period (min 65-155) **119**;
+    on-demand inits 322 / 179
+  - P95 / P99 / P99.9: warm-up 55.9 / 71.9 / 196.6 ms; PC period 69.9 / 102.5 / 176.7 ms
+  - Per spike (start min, gap after previous spike, felt): 1.0 (start-up) 51; 6.3 (3.8)
+    0; 15.6 (7.9) 43; 21.2 (4.3) 31; 36.4 (13.4) 72; 40.8 (3.3) 0; 58.7 (16.7) 72; 64.5
+    (4.1) 3; 70.8 (5.2) 0; 77.5 (5.2) 0; 84.8 (5.4) 0; 90.3 (3.9) 0; **103.2 (11.0) 73**;
+    107.6 (2.7) 0; 110.9 (1.9) 0; **137.4 (25.3) 46**; 0 felt outside spikes in the PC period
+- Notes / anomalies:
+  - Same pattern as seed 7: in C1 a spike causes cold starts only after a gap of about
+    6+ minutes (21.2 after 4.3 min is the exception, 31). On seed 9 only two PC-period
+    spikes have such a gap (103.2 and 137.4), so the whole PC-period count (119) rests
+    on two spikes, against five on seed 7 (386). The seed rule matched spike count, not
+    gaps; this was not foreseen and the rule is kept as fixed.
+  - Warm-up count (291) is not comparable with seed 7 warm-ups (different spikes); it
+    is the within-run control for C3 v3 on this seed.
+- Next step: C3 v3 on `SEED=9` (same traffic), then compare per spike.

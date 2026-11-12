@@ -1771,3 +1771,19 @@ resolved; details are in the run entries named.
 - Next step: second seed (C1 and C3 v2) to confirm the result is not tied to the
   `SEED=7` spike schedule; decide with the supervisor whether Layer 5 stays (its
   mechanism is not confirmed, its cost is +2% per request vs L23).
+
+### Decision + replay: 2026-11-12-4 (C3 v3 = Layers 1-4 with Layer 4 v2; Layer 5 dropped)
+- Decision (student, 2026-11-12): drop Layer 5. Its mechanism was not supported live (Run
+  2026-11-12-3: spillover with spare PC also at spikes with no recent cut) and it costs
+  PC. New condition `c3v3` = Layers 1, 2, 3, 4 (v2); `c3v2` kept for reproducibility.
+- Replay on the C3 v2 run's CloudWatch data (`spiky_c3v2_apply_ec2_run1.csv`,
+  `--history-start 2026-11-12T07:33`): c3v2 replay reproduces the live restart (09:34);
+  c3v3 configured 9,541 env-min vs c3v2 10,147 (-6%), shortfall 0 env-min for both,
+  usable PC 77-120. PC at onset (peak concurrency): 82.0: 92 (68), 96.0: 103 (86),
+  131.35: 99 (64), 149.37: 85 (80); every onset at or above the peak.
+- Seasonal replay (2026-11-10-3 data): c3v3 1,815 env-min, shortfall 223, 0 restarts
+  (v1 1,820 / 226 / 1).
+- Second seed, rule fixed before any run: the next seed after 7 whose PC period (min
+  65-155) has as many spikes as seed 7 (8). Seed 8 has 4; **seed 9** has 8 (70.8, 77.5,
+  84.8, 90.3, 103.2, 107.6, 110.9, 137.4). Runs: C1 and C3 v3 on `SEED=9`; C2 optional.
+  Known limit: the spiky capacity calibration was fitted on `SEED=7` C1 runs.

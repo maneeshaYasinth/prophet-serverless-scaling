@@ -57,7 +57,7 @@ spikes, the yhat_upper band narrowed and PC fell to 38 before the spike at 131.
 An over-forecast costs money, not cold starts, so v2 leaves it to the sliding window,
 the same asymmetry as Layer 3.
 
-Layer 5 (condition c3v2): stabilised scale-down. PC is lowered only to the highest
+Layer 5 (condition c3v2 only; dropped in c3v3, Run 2026-11-12-3): stabilised scale-down. PC is lowered only to the highest
 target of the last scale_down_stabilization_minutes decisions, and only when that
 is at least scale_down_min_step_fraction below the configured value. In the spiky
 runs the controller trimmed PC by 3-5 environments about every other minute, and
@@ -103,9 +103,11 @@ from src.forecasting.prophet_baseline import fit_vanilla_prophet
 
 RESULTS_DIR = REPO_ROOT / "results" / "controller"
 # Enhancement layers each condition uses (C2 = none). Layer 2 = scale to yhat_upper
-# Layer 5 = stabilised scale-down. c3v2 = C3 after Analysis 2026-11-12-1 (Layer 4 v2 + Layer 5)
-CONDITION_LAYERS = {"c2": "", "c3-layer2": "2", "c3-layer23": "23", "c3": "1234", "c3v2": "12345"}
-CONDITION_LAYER4 = {"c3v2": "v2"}  # every other condition with Layer 4 uses v1
+# Layer 5 = stabilised scale-down. c3v2 = C3 after Analysis 2026-11-12-1 (Layer 4 v2 + Layer 5).
+# c3v3 = c3v2 without Layer 5, whose mechanism was not supported live (Run 2026-11-12-3)
+CONDITION_LAYERS = {"c2": "", "c3-layer2": "2", "c3-layer23": "23", "c3": "1234", "c3v2": "12345",
+                    "c3v3": "1234"}
+CONDITION_LAYER4 = {"c3v2": "v2", "c3v3": "v2"}  # every other condition with Layer 4 uses v1
 TICK_OFFSET_S = 5  # decide a few seconds after each minute boundary
 
 

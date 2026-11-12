@@ -1615,3 +1615,50 @@ resolved; details are in the run entries named.
   for seasonal; report the replay table above as the seasonal ablation.
 - Next step: decide the seasonal ablation; steady row (C1, C2, C3); consider recalibrating
   from the live 60-minute window (Known issue 7) before steady.
+
+### Analysis: 2026-11-12-1 (spiky per-spike diagnosis, no AWS run)
+- Goal: target agreed with student on 2026-11-12: "C3 beats C1 and C2 on cold starts where
+  cold starts actually occur" (spiky). Find what causes the felt cold starts still left
+  in the C3 variants before changing anything.
+- Data: client logs + controller logs + CloudWatch exports of 2026-11-04-1 (C1), -04-3
+  (C2), -06-1 (L2), -06-3 (L23), -10-2 (full C3). Spike times regenerated from
+  `traffic_shapes.py` with `SEED=7`, 155 min. Felt cold start counted from 5 s before
+  onset to 30 s after the end. Script: scratchpad `spike_diag.py` (not yet in repo).
+- Results:
+  - Every felt cold start inside a spike is a real on-demand init (`init_type`
+    on-demand, billed ~3,085 ms); 0-2 felt cold starts per run fall outside spikes.
+  - All felt cold starts happen in the first ~3-7 s of a spike.
+  - Spikes that start within ~6 min of the previous spike (88.3, 97.75, 99.59) have 0 felt
+    cold starts in every condition, C1 included.
+  - In L2 / L23 / full C3, the spikes at 82.0, 131.35 (not full C3) and 149.37 had 35-56
+    felt cold starts **although PC allocated at onset (84-99) was at or above the peak
+    concurrency of the spike minute (76-97)**, and peak ProvisionedConcurrentExecutions
+    stayed below allocated (e.g. L23 spike 82: allocated 94, peak concurrency 79, PC in
+    use 64, 47 on-demand inits). So these cold starts are spillover with spare PC, not
+    under-provisioning.
+  - Full C3 spike 131.35 is the only real under-provisioning case (allocated 38-45 vs
+    peak 112; Layer 4 window restart, Run 2026-11-10-2).
+  - In every one of those spillover-with-spare-PC cases, the controller had issued a
+    small **lower** (3-5 environments) within ~1 min before onset, or a lower was still
+    IN_PROGRESS. Spike 96.0 is the one within-spike contrast: L23 (lower IN_PROGRESS at
+    onset) 18 felt; L2 (raise held) and full C3 (raise just issued) 0 felt. Spike 65 (PC
+    just raised from 0, no lower) had 0-1 felt in every PC run.
+  - The controller trims PC almost every other minute: 25-34 lowers per run, median size
+    3-5 environments (C2: 43 lowers, median 2).
+- Notes / anomalies:
+  - Hypothesis (unconfirmed): a PC scale-down in progress, or just finished, makes Lambda
+    spill a sudden burst to on-demand even when the remaining PC covers it. Confounded:
+    spikes after a quiet period are also the ones that meet a lower (the band narrows in
+    quiet periods), so only spike 96 separates the two. Replay cannot test this; it needs
+    a live run.
+  - Implication: raising the cap or headroom would not remove most remaining cold starts
+    (PC already >= peak at those onsets).
+- Proposed next steps (C3 v2, to be confirmed with student):
+  1. Fix the Layer 3 / Layer 4 interaction: minutes flagged as anomalies by Layer 3 are
+     excluded from Layer 4's drift check (a spike is not a level shift). Check in replay
+     that the restart before spike 131 disappears.
+  2. Scale-down hysteresis: lower PC only when the target has stayed below configured by
+     more than a set margin for a set number of minutes (values in config, justified from
+     these logs). Tests the hypothesis above; standard scale-in cooldown practice.
+  3. One live C3 v2 run on spiky `SEED=7` (C1/C2 stay comparable), then confirm on a
+     second seed with a C1 run on the same seed, to rule out tuning to one spike schedule.

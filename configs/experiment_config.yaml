@@ -107,6 +107,16 @@ traffic_patterns:
 evaluation:
   felt_cold_start_ms: 1000   # a response above this is a cold start the client felt: inits take ~3 s
                              # (simulated), warm responses stay under ~500 ms even at P99.9 (Run 2026-11-04-1)
+  # src/evaluation/run_analysis.py. Periods are by request start, minutes since the run started
+  warmup_minutes: [0, 63]      # no PC in any condition: within-run control
+  pc_period_minutes: [65, 155] # the controller is in charge (first decision at minute 64)
+  spike_window_s: [5, 30]      # a spike's felt cold starts: from 5 s before onset to 30 s after its end
+  pricing:                     # us-east-1 list prices, used for every run so far (ap-south-1 to confirm)
+    memory_gb: 0.125                 # sandbox-lambda is 128 MB
+    request_usd: 2.0e-7
+    on_demand_gb_s_usd: 1.66667e-5
+    pc_allocation_gb_s_usd: 4.1667e-6  # charged on allocated PC (controller log), minutes in pc_period
+    pc_duration_gb_s_usd: 9.7222e-6    # on the share served by PC (CloudWatch ProvisionedConcurrencyInvocations)
 
 metrics:
   - p95_latency_ms

@@ -1812,3 +1812,56 @@ resolved; details are in the run entries named.
   - Warm-up count (291) is not comparable with seed 7 warm-ups (different spikes); it
     is the within-run control for C3 v3 on this seed.
 - Next step: C3 v3 on `SEED=9` (same traffic), then compare per spike.
+
+### Run: 2026-11-12-6
+- Condition: C3 v3 (`c3v3` = Layers 1, 2, 3, 4 v2; no Layer 5), `--apply`
+- Traffic pattern: spiky, `SEED=9`, identical to 2026-11-12-5 (C1), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `785bb3e`,
+  `LOCUST_PROCESSES=2`), run `20261112-1408_spiky_c3v3_apply`; fresh version 28;
+  capacity model `ec2_spiky_run1_run2.json` (x 1.44), cap 120, `wait_for_ready`.
+  CloudWatch exports: `data/processed/spiky_c3v3_seed9_apply_ec2_run1.csv` and, for C1,
+  `spiky_c1_seed9_ec2_run1.csv` (fetched 2026-11-17). Instance stopped by an `autostop`
+  tmux session after the S3 upload (deletes PC, then shutdown); PC none afterwards
+- Duration / sample size: 155 min, 14:08:50-16:44 UTC, 3,207,749 requests, 0 failures
+- Analysis: `python -m src.evaluation.run_analysis RUN --cw RUN=CSV` (new; reproduces
+  Run 2026-11-12-3 exactly: 101 / 158 felt, $0.308, $3.071e-7, spikes 24/16/26/33).
+  Output `results/analysis/RUN.json`
+- Results (C1 = 2026-11-12-5, same traffic), PC period (min 65-155) unless stated:
+
+  | | C1 seed 9 | C3 v3 seed 9 |
+  |---|---|---|
+  | Felt cold starts (> 1 s) | 119 | **53 (-55%)** |
+  | Warm-up control, min 0-63 (no PC) | 291 | 278 |
+  | P95 / P99 (ms) | 69.9 / 102.5 | 66.8 / 99.4 |
+  | P95 / P99 inside spikes (ms) | 87.1 / 113.6 | 83.8 / 114.9 |
+  | P95 / P99 outside spikes (ms) | 45.9 / 61.2 | 45.7 / 56.3 |
+  | P99.9 inside spikes (ms) | 440.2 | 379.1 |
+  | Allocated PC, mean (min) | 0 | 103.4 (57) |
+  | Served by PC / spilled | 0% / all | 98.6% / 25,973 |
+  | PC allocation cost | - | $0.291 |
+  | Cost per request, whole run | $2.15e-7 | $3.02e-7 (+40%) |
+
+  - Per spike, PC period (start min, gap: C1 / C3 v3 felt; C3 v3 PC at onset vs peak
+    concurrency): 64.53 (4.1): 3 / 0 (raise to 101 in progress); 70.84 (5.2): 0 / 0;
+    77.46 (5.2): 0 / **15** (101 vs 87, lower just before); 84.80 (5.4): 0 / 2;
+    90.34 (3.9): 0 / 0; **103.16 (11.0): 73 / 7** (120 vs 90); 107.63 (2.7): 0 / 0;
+    110.94 (1.9): 0 / 7 (118 vs 66, lower just before); **137.44 (25.3): 46 / 22** (98
+    vs 89, lower just before)
+- Notes / anomalies:
+  - Held-out confirmation: on a spike schedule not used to design C3 v3 or its
+    capacity model, C3 v3 cut felt cold starts by 55% vs C1. The two sessions had
+    similar warm-ups (291 vs 278), so this is not a session effect (PC-period / warm-up
+    felt: C1 0.41, C3 v3 0.19).
+  - The two spikes that cost C1 its cold starts (103.16, 137.44) went from 119 to 29.
+    Spillover with spare PC again at the long-gap spike (137.44: 22 with PC above peak).
+  - New: C3 v3 had 24 felt cold starts at three spikes where C1 had 0 (77.46, 84.80,
+    110.94), all with PC above peak. In C1, those spikes come within ~5 min of the
+    previous one and find its on-demand environments still warm; with PC serving the
+    earlier spike there are fewer warm on-demand environments to absorb a spillover.
+    Mechanism inferred, not measured.
+  - Latency: on seed 9, C3 v3's P95/P99 match or beat C1's, inside and outside spikes;
+    seed 9 C1 in-spike P95 was 87.1 ms against 60.5 on seed 7. So the in-spike gap of
+    Known issue 19 is not seen on this pair; it may depend on the session or schedule
+    rather than on PC alone.
+  - C3 v3 has not run on `SEED=7`; the seed 7 C3 cell is C3 v2 (with Layer 5).
+- Next step: C3 v3 on `SEED=7` so the final C3 has both schedules; then the steady row.

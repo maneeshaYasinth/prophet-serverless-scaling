@@ -1,0 +1,218 @@
+{
+  "run": "20261112-1408_spiky_c3v3_apply",
+  "condition": "c3v3",
+  "pattern": "spiky",
+  "seed": 9,
+  "commit": "785bb3e",
+  "requests": 3207749,
+  "errors": 0,
+  "warmup": {
+    "requests": 1279436,
+    "p95_ms": 54.8,
+    "p99_ms": 67.7,
+    "p999_ms": 183.4,
+    "felt_cold_starts": 278,
+    "on_demand_inits": 291
+  },
+  "pc_period": {
+    "requests": 1879094,
+    "p95_ms": 66.8,
+    "p99_ms": 99.4,
+    "p999_ms": 176.8,
+    "felt_cold_starts": 53,
+    "on_demand_inits": 54
+  },
+  "spikes": [
+    {
+      "start_min": 0.98,
+      "duration_s": 90,
+      "gap_min": null,
+      "felt": 49,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 79
+    },
+    {
+      "start_min": 6.26,
+      "duration_s": 83,
+      "gap_min": 3.8,
+      "felt": 0,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 78
+    },
+    {
+      "start_min": 15.56,
+      "duration_s": 77,
+      "gap_min": 7.9,
+      "felt": 57,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 95
+    },
+    {
+      "start_min": 21.2,
+      "duration_s": 112,
+      "gap_min": 4.3,
+      "felt": 0,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 87
+    },
+    {
+      "start_min": 36.42,
+      "duration_s": 67,
+      "gap_min": 13.4,
+      "felt": 74,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 105
+    },
+    {
+      "start_min": 40.81,
+      "duration_s": 73,
+      "gap_min": 3.3,
+      "felt": 0,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 84
+    },
+    {
+      "start_min": 58.7,
+      "duration_s": 105,
+      "gap_min": 16.7,
+      "felt": 76,
+      "pc_allocated": "0",
+      "pc_configured": "0",
+      "lower_just_before": false,
+      "peak_concurrency": 109
+    },
+    {
+      "start_min": 64.53,
+      "duration_s": 65,
+      "gap_min": 4.1,
+      "felt": 0,
+      "pc_allocated": "0",
+      "pc_configured": "101",
+      "lower_just_before": false,
+      "peak_concurrency": 87
+    },
+    {
+      "start_min": 70.84,
+      "duration_s": 82,
+      "gap_min": 5.2,
+      "felt": 0,
+      "pc_allocated": "103",
+      "pc_configured": "103",
+      "lower_just_before": false,
+      "peak_concurrency": 69
+    },
+    {
+      "start_min": 77.46,
+      "duration_s": 115,
+      "gap_min": 5.2,
+      "felt": 15,
+      "pc_allocated": "101",
+      "pc_configured": "102",
+      "lower_just_before": true,
+      "peak_concurrency": 87
+    },
+    {
+      "start_min": 84.8,
+      "duration_s": 97,
+      "gap_min": 5.4,
+      "felt": 2,
+      "pc_allocated": "102",
+      "pc_configured": "115",
+      "lower_just_before": false,
+      "peak_concurrency": 79
+    },
+    {
+      "start_min": 90.34,
+      "duration_s": 106,
+      "gap_min": 3.9,
+      "felt": 0,
+      "pc_allocated": "109",
+      "pc_configured": "120",
+      "lower_just_before": false,
+      "peak_concurrency": 86
+    },
+    {
+      "start_min": 103.16,
+      "duration_s": 104,
+      "gap_min": 11.0,
+      "felt": 7,
+      "pc_allocated": "120",
+      "pc_configured": "120",
+      "lower_just_before": false,
+      "peak_concurrency": 90
+    },
+    {
+      "start_min": 107.63,
+      "duration_s": 87,
+      "gap_min": 2.7,
+      "felt": 0,
+      "pc_allocated": "117",
+      "pc_configured": "120",
+      "lower_just_before": true,
+      "peak_concurrency": 74
+    },
+    {
+      "start_min": 110.94,
+      "duration_s": 69,
+      "gap_min": 1.9,
+      "felt": 7,
+      "pc_allocated": "118",
+      "pc_configured": "104",
+      "lower_just_before": true,
+      "peak_concurrency": 66
+    },
+    {
+      "start_min": 137.44,
+      "duration_s": 65,
+      "gap_min": 25.3,
+      "felt": 22,
+      "pc_allocated": "98",
+      "pc_configured": "95",
+      "lower_just_before": true,
+      "peak_concurrency": 89
+    }
+  ],
+  "pc_period_inside_spikes": {
+    "requests": 776025,
+    "p95_ms": 83.8,
+    "p99_ms": 114.9,
+    "p999_ms": 379.1,
+    "felt_cold_starts": 52,
+    "on_demand_inits": 53
+  },
+  "pc_period_outside_spikes": {
+    "requests": 1103069,
+    "p95_ms": 45.7,
+    "p99_ms": 56.3,
+    "p999_ms": 123.4,
+    "felt_cold_starts": 1,
+    "on_demand_inits": 1
+  },
+  "pc_allocated_mean": 103.4,
+  "pc_allocated_min": 57,
+  "actions": {
+    "held": 26,
+    "lower": 24,
+    "raise": 21,
+    "keep": 21
+  },
+  "window_restarts": [
+    "2026-11-12 16:22:00"
+  ],
+  "pc_served_share_pc_period": 0.986,
+  "spilled_pc_period": 25973,
+  "pc_allocation_usd": 0.291,
+  "cost_per_request_usd": 3.017e-07
+}

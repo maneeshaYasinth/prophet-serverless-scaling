@@ -1865,3 +1865,52 @@ resolved; details are in the run entries named.
     rather than on PC alone.
   - C3 v3 has not run on `SEED=7`; the seed 7 C3 cell is C3 v2 (with Layer 5).
 - Next step: C3 v3 on `SEED=7` so the final C3 has both schedules; then the steady row.
+
+### Run: 2026-11-17-1
+- Condition: C3 v3 (`c3v3` = Layers 1, 2, 3, 4 v2; no Layer 5), `--apply`
+- Traffic pattern: spiky, `SEED=7`, identical to 2026-11-04-1 (C1), 2026-11-04-3 (C2),
+  2026-11-06-1/-3 (L2, L23), 2026-11-10-2 (C3 v1), 2026-11-12-3 (C3 v2), 155 min
+- Data source: EC2 load generator (c7i-flex.large, commit `c839860`,
+  `LOCUST_PROCESSES=2`), run `20261117-0622_spiky_c3v3_apply`; fresh version 29;
+  capacity model `ec2_spiky_run1_run2.json` (x 1.44), cap 120, `wait_for_ready`.
+  CloudWatch export `data/processed/spiky_c3v3_seed7_apply_ec2_run1.csv`. Instance
+  stopped by `autostop` after the S3 upload; PC none afterwards
+- Duration / sample size: 155 min, 06:22:20-08:57 UTC, 3,204,033 requests, 0 failures
+- Results, PC period (min 65-155) unless stated:
+
+  | | C1 | L23 | C3 v1 | C3 v2 | C3 v3 |
+  |---|---|---|---|---|---|
+  | Felt cold starts (> 1 s) | 386 | 143 | 196 | 101 | **206 (-47%)** |
+  | ... excluding the 64.95 spike (see notes) | 310 | 142 | 196 | 101 | **129 (-58%)** |
+  | Warm-up control, min 0-63 (no PC) | 180 | 218 | 208 | 158 | 204 |
+  | P95 / P99 (ms) | 54.9 / 68.2 | 78.3 / 109.7 | 90.7 / 119.0 | 81.0 / 111.4 | 81.4 / 111.0 |
+  | P95 / P99 inside spikes (ms) | 60.5 / 79.1 | 94.9 / 124.7 | 107.0 / 138.9 | 97.1 / 127.9 | 97.8 / 127.0 |
+  | P95 / P99 outside spikes (ms) | 46.0 / 55.3 | 47.4 / 68.4 | 46.3 / 70.9 | 46.4 / 69.0 | 45.4 / 59.7 |
+  | Allocated PC, mean (min) | 0 | 101.7 | 92.1 | 109.5 | 101.7 (59) |
+  | Served by PC / spilled | 0% / all | 95% / 87,514 | 93% / 119,455 | 97.5% / 44,635 | 95.2% / 86,323 |
+  | PC allocation cost | - | $0.286 | $0.259 | $0.308 | $0.286 |
+  | Cost per request, whole run | $2.16e-7 | $3.01e-7 | $2.93e-7 | $3.07e-7 | $3.00e-7 (+39%) |
+
+  - Per spike (start min: C3 v2 / C3 v3 felt; v3 PC allocated at onset vs peak
+    concurrency): **64.95: 0 / 77** (0 vs 127; raise to 100 still IN_PROGRESS);
+    81.99: 24 / 46 (91 vs 74, lower just before); 88.30: 0 / 0; 96.00: 16 / 13;
+    97.75: 0 / 0; 99.59: 0 / 0; 131.35: 26 / 39 (98 vs 84); 149.37: 33 / 31 (93 vs 86)
+  - Actions: 22 raise, 26 lower, 22 keep, 22 held; one Layer 4 window restart (08:23)
+- Notes / anomalies:
+  - **Boundary spike.** The first decision lands in minute 63-64 and a raise takes
+    ~2 min to READY. Spike 64.95 started 1.25 min after the first decision here
+    (started at :20 s past the minute) but 2.0 min after it in C3 v2 (:05 s), whose PC
+    was READY at onset. So 77 of the 206 come from the handover between warm-up and
+    controller, set by the run's start second, not by the strategy. Seed 9 has the same
+    exposure (64.53, PC 0 at onset in 2026-11-12-6; only 3 felt in C1 because its gap
+    was 4.1 min). Report both counts; do not drop the spike silently.
+  - Excluding the boundary spike, C3 v3 (129) sits between C3 v2 (101) and L23 (142),
+    and well below C1 (310) and C3 v1 (196). The v2-v3 gap is mostly 81.99 (+22) and
+    131.35 (+13), both with PC above peak (spillover with spare PC); this session's
+    warm-up was also 29% higher than C3 v2's (204 vs 158). Not attributable to Layer 5
+    on this evidence.
+  - Layer 4 v2 fixed the C3 v1 failure: at 131.35 PC was 98 (v1: 38), felt 39 (v1: 101).
+  - Latency (Known issue 19) is back on seed 7: in-spike P95 97.8 vs C1 60.5 ms, while
+    on seed 9 C3 v3 matched C1. Outside spikes C3 v3 equals or beats C1.
+- Next step: fix the PC handover so the first raise is READY before minute 65 (see
+  proposal in chat 2026-11-17), then the steady row.
